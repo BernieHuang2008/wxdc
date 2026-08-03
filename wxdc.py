@@ -1,0 +1,424 @@
+import requests
+import logging
+import re
+import json
+import glob
+from wxdc_bind import BindWeChat, UnBindWeChat
+from datetime import date, timedelta
+from config_utils import LLM_API_KEY, LLM_ENDPOINT, LLM_MODEL, PENDING_ORDERS_DIR, USERS_DIR, WEB_BASE_URL
+from email_utils import send_email
+
+def ask_llm(prompt: str) -> str:
+    import os
+    # Use Pollinations AI API for LLM interaction
+    url = LLM_ENDPOINT
+    api_key = LLM_API_KEY
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "model": LLM_MODEL,
+        "messages": [
+            {"role": "user", "content": prompt}
+        ]
+    }
+    try:
+        response = requests.post(url, json=payload, headers=headers, verify=False)
+        response.raise_for_status()
+        return response.json().get("choices")[0].get("message").get("content")
+    except requests.exceptions.RequestException as e:
+        logging.error(f"Failed to call Pollinations AI: {e}")
+        return ""
+
+class AuthInfo:
+    _openid = None
+    center_id = "9053"  # szsy gzb
+    user_no = None
+    token = None
+    jsessionid = None
+
+    def __init__(self):
+        pass
+
+    def auth_by_openid(self, openid=None):
+        self._openid = openid or self._openid
+
+        url = "http://wxdc.szsy.cn/api/wechat/oauth"
+        params = {
+            "openId": self._openid
+        }
+        headers = {
+            "Host": "wxdc.szsy.cn",
+            "Content-Type": "application/json",
+            "User-Agent": "Mozilla/5.0 (Linux; Android 12; LIO-AN00 Build/HUAWEILIO-AN00; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/142.0.7444.173 Mobile Safari/537.36 XWEB/1420153 MMWEBSDK/20251101 MMWEBID/2946 MicroMessenger/8.0.67.3000(0x28004351) WeChat/arm64 Weixin NetType/WIFI Language/zh_CN ABI/arm64",
+            "Accept": "application/json, text/plain, */*"
+        }
+        
+        try:
+            response = requests.post(url, params=params, headers=headers)
+            response.raise_for_status()
+            
+            auth_data = response.json()
+            self.center_id = str(auth_data.get("result").get("centerId"))
+            self.token = auth_data.get("result").get("token")
+            print(auth_data)
+           # self.jsessionid = auth_data.get("result").get("jsessionid")
+            
+            logging.info("Authentication successful")
+            
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Authentication failed: {e}")
+        except ValueError as e:
+            logging.error(f"Error parsing auth response: {e}")
+
+    def reauth(self):
+        logging.info("Re-authenticating...")
+        self.auth_by_openid(self._openid)
+
+    def isCompleted(self):
+        print([self.user_no, self.token, self.jsessionid])
+        return all([self.user_no, self.token, self.jsessionid])
+
+class CanteenMenu:
+    authinfo = None
+
+    _menu = None
+
+    def __init__(self, date=None, auth=None):
+        self.date = date
+        self.authinfo = auth
+
+    def isCompleted(self):
+        return self.authinfo.isCompleted()
+    
+    @property
+    def menu(self):
+        if self._menu is None:
+            self.fetch_menu()
+        return self._menu
+
+    def fetch_menu(self):
+        if not self.isCompleted():
+            raise ValueError("User information is incomplete.")
+        
+        url = "http://wxdc.szsy.cn/api/orderdata/getOrderFoodList"
+        params = {
+            "selectdate": self.date,
+            "userno": self.authinfo.user_no,
+            "foodtype": ""
+        }
+        headers = {
+            "Host": "wxdc.szsy.cn",
+            "Proxy-Connection": "keep-alive",
+            "Content-Length": "0",  # Explicitly setting content-length to 0 as per the raw request, though requests usually handles this
+            "X-Access-Token": self.authinfo.token,
+            "CENTER_ID": self.authinfo.center_id,
+            "User-Agent": "Mozilla/5.0 (Linux; Android 12; LIO-AN00 Build/HUAWEILIO-AN00; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/142.0.7444.173 Mobile Safari/537.36 XWEB/1420153 MMWEBSDK/20251101 MMWEBID/2946 MicroMessenger/8.0.67.3000(0x28004351) WeChat/arm64 Weixin NetType/WIFI Language/zh_CN ABI/arm64",
+            "Accept": "application/json, text/plain, */*",
+            "Origin": "http://wxdc.szsy.cn",
+            "X-Requested-With": "com.tencent.mm",
+            "Referer": "http://wxdc.szsy.cn/order/orderFood",
+            "Accept-Encoding": "gzip, deflate",
+            "Accept-Language": "zh-CN,zh;q=0.9,en-CN;q=0.8,en-US;q=0.7,en;q=0.6",
+            "Cookie": f"JSESSIONID={self.authinfo.jsessionid}"
+        }
+
+        tolerance = 3
+        while tolerance > 0:
+            tolerance -= 1
+
+            response = requests.post(url, params=params, headers=headers)
+            if response.status_code == 401:
+                # Unauthorized access
+                self.authinfo.reauth()
+                continue
+            
+            logging.info("Status Code:", response.status_code)
+            logging.info("Response Headers:", response.headers)
+            
+            # Try to parse JSON if possible
+            try:
+                self._menu = response.json().get("result")
+                # logging.info("Response JSON:", self._menu)
+                tolerance = 1000
+                break
+            except ValueError:
+                logging.error("Error Decoding JSON: ", response.text)
+                # logging.info("Response Text:", response.text)
+
+        if tolerance == 0:
+            logging.error("Failed to fetch menu after multiple attempts.")
+
+
+class AutoOrder:
+    authinfo = None
+    requirement = None
+
+
+    @staticmethod
+    def organize_menu(foodlist):
+        new_foodlist = []
+
+        if not foodlist:
+            return new_foodlist
+
+        for food in foodlist:
+            # sold out
+            if food.get("ydflag"):
+                continue
+
+            new_food = {
+                "id": food.get("id"),
+                "name": food.get("name"),
+                "price": float(food.get("price")),
+            }
+            new_foodlist.append(new_food)
+
+        return new_foodlist
+    
+    def auto_order_week(self, weekly_data):
+        prompt_menus = {}
+        for day_key, day_info in weekly_data.items():
+            date_str = day_info["date"]
+            menu_info = day_info.get("menu", {})
+            prompt_menus[date_str] = {}
+            for meal in ["breakfastorders", "lunchorders", "supperorders"]:
+                if menu_info and meal in menu_info and menu_info[meal]:
+                    prompt_menus[date_str][meal] = self.organize_menu(menu_info[meal])
+                else:
+                    prompt_menus[date_str][meal] = []
+
+        prompt = f"""
+        你是一个食堂自动订餐系统，需要根据用户的需求以及一周的菜单，一次性为一周完成订餐。订餐结果请返回到<result>标签内，格式为一个字典(json)，以日期为键，值为各餐的订餐列表（内容包括：所定餐品的id, name, price）。
+        例如：
+        <result>
+        {{
+            "2024-03-25": {{
+                "breakfastorders": [{{
+                    "id": "12345abc",
+                    "name": "肉包子",
+                    "price": 2.5
+                }}],
+                "lunchorders": [...],
+                "supperorders": [...]
+            }},
+            "2024-03-26": {{ ... }}
+        }}
+        </result>
+        其中：
+        - result中的内容必须是合法的json格式。字典的键是日期。如果是休息日没有安排餐饮，可以为空或者省略。
+        - 只能订购提供的菜单中有的餐品（对应日期对应餐次的菜单）。如果没有提供对应的菜单（比如周五晚餐或者菜单为空），请返回空列表 []，或者不要包含该餐次。
+        - 所有信息必须与菜单上的信息完全一致，才能订餐成功。请谨慎对待！
+        - 如果某餐的菜单为空，不能订餐。
+        - 你必须将最终结果返回在<result>标签内，不能放在其他标签内。
+        - 你的所有返回结果（包括think），只能有1个<result>字样。如果出现多次系统将无法识别！
+
+        你可以在 <think> 标签中写出你的思考过程、分析用户喜好与菜品的过程，think step by steps. 
+        最后，你还要在<think>标签内double check你的订餐结果是否满足要求，是否有不合理的地方（比如订了一个菜，但是这个菜在当天的菜单里没有）。如果发现问题，请修改你的订餐结果，直到它完全满足要求为止。
+        你的输出可以不用在意可视化的格式，只要保证<result>标签内的内容是合法的json格式，并且满足上述要求即可。
+
+        Order Requirement:
+        {self.requirement}
+
+        Weekly Canteen Menu:
+        {json.dumps(prompt_menus, ensure_ascii=False)}
+        """
+
+        logging.info("Prompt to LLM: %s", prompt)
+
+        res = ask_llm(prompt)
+
+        logging.info("LLM Response: %s", res)
+        
+        # Extract content from <result> tags and parse as JSON
+        
+        result_match = re.search(r'<result>(.*?)</result>', res, re.DOTALL)
+        if result_match:
+            result_content = result_match.group(1).strip()
+            try:
+                weekly_orders = json.loads(result_content)
+
+                # verify and populate
+                for day_key, day_info in weekly_data.items():
+                    date_str = day_info["date"]
+                    day_info["auto_order"] = {
+                        "breakfastorders": [],
+                        "lunchorders": [],
+                        "supperorders": []
+                    }
+                    if date_str in weekly_orders:
+                        for meal in ["breakfastorders", "lunchorders", "supperorders"]:
+                            orders = weekly_orders[date_str].get(meal, [])
+                            # check
+                            valid_orders = []
+                            org_menu = prompt_menus.get(date_str, {}).get(meal, [])
+                            for order in orders:
+                                if any(food['id'] == order['id'] and food['name'] == order['name'] and food['price'] == order['price'] for food in org_menu):
+                                    valid_orders.append(order)
+                                else:
+                                    logging.error(f"Ordered item not found in menu for {date_str} {meal}: {order}")
+                            day_info["auto_order"][meal] = valid_orders
+
+                return True
+            except json.JSONDecodeError as e:
+                logging.error(f"Failed to parse JSON from result: {e} / {result_content}")
+                return False
+        else:
+            logging.error(f"No <result> tags found in response: {res}")
+            return False
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+
+    user_files = USERS_DIR.glob("*.json")
+    for user_file in user_files:
+        with open(user_file, "r", encoding="utf-8") as f:
+            user_data = json.load(f)
+        
+        user_no = user_data.get("UserNO")
+        logging.info(f"Processing orders for user: {user_no}")
+
+        try:
+            BindWeChat(userno=user_data.get("UserNO"), pwd=user_data.get("pwd"))
+        except Exception as e:
+            logging.error(f"Failed to bind WeChat: {e}")
+            continue
+
+        authinfo = AuthInfo()
+        authinfo.user_no = user_no
+        authinfo.auth_by_openid(user_data.get("open_id"))
+        authinfo.jsessionid = user_data.get("jsessionid")
+
+        base_date = date.today()    # script will be triggered at friday for next week
+        base_date += timedelta(days=(7 - base_date.weekday()))  # next monday
+        
+        data = {}
+
+        auto_order = AutoOrder()
+        auto_order.authinfo = authinfo
+        auto_order.requirement = user_data.get("req", "")
+        # Mon - Thu
+        for day in range(4):
+            canteen_menu = CanteenMenu((base_date + timedelta(days=day)).isoformat(), auth=authinfo)
+
+            data[str(day+1)] = {
+                "date": (base_date + timedelta(days=day)).isoformat(),
+                "menu": canteen_menu.menu
+            }
+        # Friday: only breakfast and lunch
+        day = 4
+        canteen_menu = CanteenMenu((base_date + timedelta(days=day)).isoformat(), auth=authinfo)
+        print(canteen_menu, canteen_menu.menu)
+        filtered_friday_menu = {
+            "breakfastorders": canteen_menu.menu.get("breakfastorders", []),
+            "lunchorders": canteen_menu.menu.get("lunchorders", []),
+            "supperorders": []
+        }
+        data[str(day+1)] = {
+            "date": (base_date + timedelta(days=day)).isoformat(),
+            "menu": filtered_friday_menu
+        }
+
+        # read special config date from user data
+        spec_conf_raw = user_data.get("spec_conf_date", "")
+        if spec_conf_raw:
+            spec_conf = spec_conf_raw.strip().split("\n")
+            for line in spec_conf:
+                line = line.strip()
+                if not line:
+                    continue
+                spec_date, submenus = line.split(" ", 1)
+                submenus = submenus.split(" ")
+                
+                spec_date_obj = date.fromisoformat(spec_date)
+                if base_date <= spec_date_obj < base_date + timedelta(days=7):
+                    day_offset = (spec_date_obj - base_date).days
+
+                    canteen_menu = CanteenMenu(spec_date, auth=authinfo)
+                    
+                    # Setup menu for the special date, restricting options depending on whether it's an existing day
+                    if str(day_offset+1) in data:
+                        current_menu = data[str(day_offset+1)]["menu"]
+                    else:
+                        current_menu = {
+                            "breakfastorders": [],
+                            "lunchorders": [],
+                            "supperorders": []
+                        }
+                    
+                    for submenu in submenus:
+                        meal = f"{submenu}orders"
+                        # Add only specifically listed submenus for special dates
+                        if canteen_menu.menu and meal in canteen_menu.menu:
+                            current_menu[meal] = canteen_menu.menu[meal]
+                    
+                    data[str(day_offset+1)] = {
+                        "date": spec_date,
+                        "menu": current_menu
+                    }
+
+        # Call AI to process whole week orders at once
+        auto_order.auto_order_week(data)
+                
+        output_filename = f"order_{user_no}_{base_date.isoformat()}.json"
+        PENDING_ORDERS_DIR.mkdir(parents=True, exist_ok=True)
+        with open(PENDING_ORDERS_DIR / output_filename, "w", encoding="utf-8") as f:
+            json.dump(data, f)
+
+        # Convert data to HTML table for email
+        html_body = f"<h1>Auto Order Summary for {user_no}</h1>"
+        html_body += f"<p>Week starting: {base_date.isoformat()}</p>"
+        html_body += "<table border='1' cellspacing='0' cellpadding='5' style='border-collapse: collapse;'>"
+        html_body += "<thead><tr style='background-color: #f2f2f2;'><th>Date</th><th>Breakfast</th><th>Lunch</th><th>Supper</th></tr></thead><tbody>"
+
+        # Sort days
+        sorted_days = sorted(data.keys(), key=lambda x: int(x))
+        
+        for day_key in sorted_days:
+            day_info = data[day_key]
+            date_str = day_info.get("date", "")
+            auto_orders = day_info.get("auto_order", {})
+            
+            html_body += f"<tr><td>{date_str}</td>"
+            
+            for meal in ["breakfastorders", "lunchorders", "supperorders"]:
+                html_body += "<td>"
+                orders = auto_orders.get(meal, [])
+                if orders:
+                    html_body += "<ul>"
+                    for item in orders:
+                        name = item.get("name", "Unknown")
+                        price = item.get("price", 0)
+                        html_body += f"<li>{name} (￥{price})</li>"
+                    html_body += "</ul>"
+                else:
+                    html_body += "-"
+                html_body += "</td>"
+            
+            html_body += "</tr>"
+            
+        html_body += "</tbody></table>"
+
+        # Add Action Buttons
+        base_url = WEB_BASE_URL
+        edit_url = f"{base_url}/pending_orders/{output_filename}"
+        submit_url = f"{base_url}/submit_order_from_email/{output_filename}"
+
+        html_body += f"""
+        <div style="margin-top: 30px; font-family: sans-serif;">
+            <p>Please review the order above.</p>
+            <p>
+                <a href="{edit_url}" style="display: inline-block; padding: 10px 20px; background-color: #007bff; color: white; text-decoration: none; border-radius: 5px; margin-right: 15px;">编辑订单</a>
+                <a href="{submit_url}" style="display: inline-block; padding: 10px 20px; background-color: #28a745; color: white; text-decoration: none; border-radius: 5px;">直接提交</a>
+            </p>
+            <p style="font-size: 12px; color: #888;">If the "Quick Submit" button doesn't work, please use the "Edit Order" page to submit.</p>
+        </div>
+        """
+
+        # Send Email
+        user_email = user_data.get("email", "berniehuang2008@163.com")
+        send_email(f"自动订餐系统 - {user_no}", html_body, user_email)
+
+        # unbind
+        UnBindWeChat(userno=user_no, jsessionid=authinfo.jsessionid, x_access_token=authinfo.token, center_id=authinfo.center_id)

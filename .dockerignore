@@ -1,0 +1,11 @@
+data/
+test/
+service/
+__pycache__/
+*.pyc
+.git/
+.agents/
+.codex/
+.venv/
+venv/
+.gitignore
