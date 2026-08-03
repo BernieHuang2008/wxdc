@@ -10,6 +10,8 @@ services:
       TZ: Asia/Shanghai
       DATA_DIR: /data
       CONFIG_PATH: /data/config.yaml
+      RUN_WXDC_ON_START: "true"
+      SMOKE_ONLY: "false"
       CRON_SCHEDULE: "0 16 * * 5"
       CRON_LOG_FILE: /data/logs/wxdc-cron.log
     volumes:
