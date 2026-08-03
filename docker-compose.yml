@@ -5,12 +5,12 @@ services:
     container_name: wxdc
     restart: unless-stopped
     ports:
-      - "5008:5008"
+      - 5008:5008
     environment:
       TZ: Asia/Shanghai
       DATA_DIR: /data
       CONFIG_PATH: /data/config.yaml
-      RUN_WXDC_ON_START: "true"
+      RUN_WXDC_ON_START: "false"
       SMOKE_ONLY: "false"
       CRON_SCHEDULE: "0 16 * * 5"
       CRON_LOG_FILE: /data/logs/wxdc-cron.log

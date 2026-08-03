@@ -476,4 +476,4 @@ def api_register():
         return jsonify({"success": False, "message": "Failed to send registration email."}), 500
 
 if __name__ == '__main__':
-    app.run(debug=True, port=APP_PORT)
+    app.run("0.0.0.0", debug=True, port=APP_PORT)
