@@ -15,4 +15,6 @@ if [ -x /app/install_cron.sh ]; then
     /app/install_cron.sh
 fi
 
+cron -L /dev/stdout &
+
 exec python /app/server.py
