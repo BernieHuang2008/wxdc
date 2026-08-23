@@ -298,27 +298,27 @@ if __name__ == "__main__":
         auto_order = AutoOrder()
         auto_order.authinfo = authinfo
         auto_order.requirement = user_data.get("req", "")
-        # Mon - Thu
-        for day in range(4):
+        # Mon - Fri
+        for day in range(5):
             canteen_menu = CanteenMenu((base_date + timedelta(days=day)).isoformat(), auth=authinfo)
 
             data[str(day+1)] = {
                 "date": (base_date + timedelta(days=day)).isoformat(),
                 "menu": canteen_menu.menu
             }
-        # Friday: only breakfast and lunch
-        day = 4
-        canteen_menu = CanteenMenu((base_date + timedelta(days=day)).isoformat(), auth=authinfo)
-        print(canteen_menu, canteen_menu.menu)
-        filtered_friday_menu = {
-            "breakfastorders": canteen_menu.menu.get("breakfastorders", []),
-            "lunchorders": canteen_menu.menu.get("lunchorders", []),
-            "supperorders": []
-        }
-        data[str(day+1)] = {
-            "date": (base_date + timedelta(days=day)).isoformat(),
-            "menu": filtered_friday_menu
-        }
+        # # Friday: only breakfast and lunch
+        # day = 4
+        # canteen_menu = CanteenMenu((base_date + timedelta(days=day)).isoformat(), auth=authinfo)
+        # print(canteen_menu, canteen_menu.menu)
+        # filtered_friday_menu = {
+        #     "breakfastorders": canteen_menu.menu.get("breakfastorders", []),
+        #     "lunchorders": canteen_menu.menu.get("lunchorders", []),
+        #     "supperorders": []
+        # }
+        # data[str(day+1)] = {
+        #     "date": (base_date + timedelta(days=day)).isoformat(),
+        #     "menu": filtered_friday_menu
+        # }
 
         # read special config date from user data
         spec_conf_raw = user_data.get("spec_conf_date", "")

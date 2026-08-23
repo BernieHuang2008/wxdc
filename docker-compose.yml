@@ -12,7 +12,7 @@ services:
       CONFIG_PATH: /data/config.yaml
       RUN_WXDC_ON_START: "false"
       SMOKE_ONLY: "false"
-      CRON_SCHEDULE: "0 16 * * 5"
-      CRON_LOG_FILE: /data/logs/wxdc-cron.log
+      CRON_SCHEDULE: "0 13 * * 5"
+      CRON_LOG_FILE: /data/logs/wxdc.log
     volumes:
       - /data/wxdc:/data
