@@ -78,7 +78,7 @@ class AuthInfo:
         self.auth_by_openid(self._openid)
 
     def isCompleted(self):
-        print([self.user_no, self.token, self.jsessionid])
+        # print([self.user_no, self.token, self.jsessionid])
         return all([self.user_no, self.token, self.jsessionid])
 
 class CanteenMenu:
@@ -228,7 +228,109 @@ class AutoOrder:
 
         logging.info("Prompt to LLM: %s", prompt)
 
-        res = ask_llm(prompt)
+        # res = ask_llm(prompt)
+        # pseudo
+        res="""
+<result>
+{
+  "2026-08-31": {
+    "breakfastorders": [],
+    "lunchorders": [
+      {
+        "id": "8a8c48b7932589400194884cff020561",
+        "name": "番茄炒鸡蛋面(粉 )",
+        "price": 12.0
+      }
+    ],
+    "supperorders": [
+      {
+        "id": "8a8c48b773041ed10173423488b51afd",
+        "name": "肉末蒸蛋",
+        "price": 4.0
+      },
+      {
+        "id": "8a8c48b784e022a9018a15c0c4014da5",
+        "name": "蒜蓉炒时蔬",
+        "price": 2.0
+      }
+    ]
+  },
+  "2026-09-01": {
+    "breakfastorders": [],
+    "lunchorders": [
+      {
+        "id": "8a8c48b7932589400194884cff310564",
+        "name": "排骨面/(粉)",
+        "price": 17.0
+      }
+    ],
+    "supperorders": [
+      {
+        "id": "8a8c48b792708c7401927982059e0f2e",
+        "name": "莲藕焖鸭",
+        "price": 7.0
+      }
+    ]
+  },
+  "2026-09-02": {
+    "breakfastorders": [],
+    "lunchorders": [
+      {
+        "id": "8a8c48b7932589400194884cff020561",
+        "name": "番茄炒鸡蛋面(粉 )",
+        "price": 12.0
+      }
+    ],
+    "supperorders": [
+      {
+        "id": "8a8c48b773041ed10173423489af1b6e",
+        "name": "盐水鸡腿(1个)",
+        "price": 7.0
+      },
+      {
+        "id": "8a8c48b784e022a9018a15c0c4014da5",
+        "name": "蒜蓉炒时蔬",
+        "price": 2.0
+      }
+    ]
+  },
+  "2026-09-03": {
+    "breakfastorders": [],
+    "lunchorders": [
+      {
+        "id": "8a8c48b773041ed10173423489901b61",
+        "name": "莲藕炒鸡丁",
+        "price": 6.0
+      }
+    ],
+    "supperorders": [
+      {
+        "id": "8a8c48b7932589400194884cff310564",
+        "name": "排骨面/(粉)",
+        "price": 17.0
+      }
+    ]
+  },
+  "2026-09-04": {
+    "breakfastorders": [],
+    "lunchorders": [
+      {
+        "id": "8a8c48b773041ed10173423489ee1b8b",
+        "name": "香芋焖鸭",
+        "price": 7.0
+      }
+    ],
+    "supperorders": [
+      {
+        "id": "8a8c48b773041ed10173423488c51b05",
+        "name": "肉酱蒸茄子",
+        "price": 4.0
+      }
+    ]
+  }
+}
+</result>
+"""
 
         logging.info("LLM Response: %s", res)
         
@@ -380,6 +482,7 @@ if __name__ == "__main__":
                     break
                 case "wechat":
                     try:
+                        logging.info("Wechat ADB Operation Started")
                         wxutils.connect()
                         wxutils.navigate_to_chat(*user_data.get("wechat"))
                         wxutils.send_text(f"自动订餐系统 （{time.strftime('%Y-%m-%d', time.localtime())}） - {user_no}")
@@ -387,6 +490,7 @@ if __name__ == "__main__":
                         wxutils.send_image("/app/order_summary.png")
                         wxutils.send_text(f"快捷操作\n\n> 快速提交：{WEB_BASE_URL}/submit_order_from_email/{output_filename}\n\n> 编辑订单：{WEB_BASE_URL}/pending_orders/{output_filename}")
                         wxutils.navigate_to_tongxunlu_from_chat()
+                        logging.info("WeChat notification sent successfully.")
                     except BaseException as e:
                         logging.error(f"Failed to send WeChat notification for {user_no}.")
                         logging.error(f"Traceback: {e.__traceback__}")
