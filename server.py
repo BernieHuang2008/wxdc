@@ -1,3 +1,5 @@
+import re
+
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
 import os
 import json
@@ -281,6 +283,15 @@ def submit_order(filename):
 
 @app.route('/submit_order_from_email/<filename>', methods=['GET'])
 def submit_order_from_email(filename):
+    validation = re.fullmatch(r'order_(\d{7})_\d{4}-\d{2}-\d{2}\.json', filename)  # Basic validation
+    if validation is None:
+        # TODO security alert
+        return "Invalid filename format.", 400
+
+    if validation.group(1) != request.cookies.get('user_no'):
+        # TODO security alert
+        return "Unauthorized: You can only submit your own orders.", 403
+
     filepath = os.path.join(PENDING_ORDERS_DIR, filename)
     if not os.path.exists(filepath):
         return "Order file not found.", 404

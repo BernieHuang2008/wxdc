@@ -3,3 +3,8 @@ requests
 cryptography
 PyYAML
 dkimpy
+adbutils
+pytesseract
+pillow
+numpy
+opencv-python
