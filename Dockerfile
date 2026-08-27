@@ -8,7 +8,11 @@ ENV DATA_DIR=/data
 WORKDIR /app
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends cron tzdata fonts-noto-cjk tesseract-ocr tesseract-ocr-chi-sim \
+    && apt-get install -y --no-install-recommends cron tzdata fonts-noto-cjk \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-chi-sim \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt /app/requirements.txt
