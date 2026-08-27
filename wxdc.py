@@ -481,13 +481,17 @@ if __name__ == "__main__":
                     send_email(f"自动订餐系统 - {user_no}", html_body, user_email)
                     break
                 case "wechat":
-                    logging.info("Wechat ADB Operation Started")
-                    wxutils.connect()
-                    wxutils.navigate_to_chat(*user_data.get("wechat"))
-                    wxutils.send_text(f"自动订餐系统 （{time.strftime('%Y-%m-%d', time.localtime())}） - {user_no}")
-                    genorder_img.generate_order_summary_image(data, user_no, base_date)
-                    wxutils.send_image("/app/order_summary.png")
-                    wxutils.send_text(f"快捷操作\n\n> 快速提交：{WEB_BASE_URL}/submit_order_from_email/{output_filename}\n\n> 编辑订单：{WEB_BASE_URL}/pending_orders/{output_filename}")
-                    wxutils.navigate_to_tongxunlu_from_chat()
-                    logging.info("WeChat notification sent successfully.")
+                    try:
+                        logging.info("Wechat ADB Operation Started")
+                        wxutils.connect()
+                        wxutils.navigate_to_chat(*user_data.get("wechat"))
+                        wxutils.send_text(f"自动订餐系统 （{time.strftime('%Y-%m-%d', time.localtime())}） - {user_no}")
+                        genorder_img.generate_order_summary_image(data, user_no, base_date)
+                        wxutils.send_image("/app/order_summary.png")
+                        wxutils.send_text(f"快捷操作\n\n> 快速提交：{WEB_BASE_URL}/submit_order_from_email/{output_filename}\n\n> 编辑订单：{WEB_BASE_URL}/pending_orders/{output_filename}")
+                        wxutils.navigate_to_tongxunlu_from_chat()
+                        logging.info("WeChat notification sent successfully.")
+                    except:
+                        logging.exception("Failed to send WeChat notification")
+                        
                     break
