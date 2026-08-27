@@ -4,8 +4,7 @@ services:
     image: berniehuang2008/wxdc:latest
     container_name: wxdc
     restart: unless-stopped
-    ports:
-      - 5008:5008
+    network_mode: host
     environment:
       TZ: Asia/Shanghai
       DATA_DIR: /data
