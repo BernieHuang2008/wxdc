@@ -7,4 +7,4 @@ adbutils
 pytesseract
 pillow
 numpy
-opencv-python
+opencv-python-headless
