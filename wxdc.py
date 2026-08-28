@@ -159,9 +159,24 @@ class AutoOrder:
     authinfo = None
     requirement = None
 
+    id_map = {
+        # real_id: fake_id
+    }
+    id_map_reverse = []
+    fake_id_counter = 0
 
-    @staticmethod
-    def organize_menu(foodlist):
+    def realid_2_fakeid(self, real_id):
+        if real_id not in self.id_map:
+            self.id_map[real_id] = self.fake_id_counter
+            self.id_map_reverse.append(real_id)
+            self.fake_id_counter += 1
+
+        return self.id_map[real_id]
+
+    def fakeid_2_realid(self, fake_id):
+        return self.id_map_reverse[fake_id]
+
+    def organize_menu(self, foodlist):
         new_foodlist = []
 
         if not foodlist:
@@ -173,7 +188,7 @@ class AutoOrder:
                 continue
 
             new_food = {
-                "id": food.get("id"),
+                "id": self.realid_2_fakeid(food.get("id")),
                 "name": food.get("name"),
                 "price": float(food.get("price")),
             }
@@ -242,15 +257,19 @@ class AutoOrder:
             }
             if date_str in weekly_orders:
                 for meal in ["breakfastorders", "lunchorders", "supperorders"]:
-                    orders = weekly_orders[date_str].get(meal, [])
+                    CAIs = weekly_orders[date_str].get(meal, [])
                     # check
                     valid_orders = []
                     org_menu = prompt_menus.get(date_str, {}).get(meal, [])
-                    for order in orders:
-                        if any(food['id'] == order['id'] and food['name'] == order['name'] and food['price'] == order['price'] for food in org_menu):
-                            valid_orders.append(order)
+                    for cai in CAIs:
+                        if any(food['id'] == cai['id'] and food['name'] == cai['name'] and food['price'] == cai['price'] for food in org_menu):
+                            valid_orders.append({
+                                "id": self.fakeid_2_realid(cai['id']),
+                                "name": cai['name'],
+                                "price": cai['price']
+                            })
                         else:
-                            logging.error(f"Ordered item not found in menu for {date_str} {meal}: {order}")
+                            logging.error(f"Ordered item not found in menu for {date_str} {meal}: {cai}")
                     day_info["auto_order"][meal] = valid_orders
 
         return True
