@@ -8,12 +8,8 @@ def get_font(size, bold=False):
     """尝试加载中文字体，若失败则使用默认字体"""
     # 常见中文字体路径（按优先级）
     font_paths = [
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",   # Linux (Noto)
         "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",   # Linux (Noto)
-        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",  # Linux 备用
-        "C:/Windows/Fonts/simhei.ttf",     # Windows 黑体
-        "C:/Windows/Fonts/msyh.ttc",       # Windows 微软雅黑
-        "/System/Library/Fonts/PingFang.ttc",  # macOS
-        "/Library/Fonts/Arial Unicode.ttf",    # macOS
     ]
     for path in font_paths:
         if os.path.exists(path):

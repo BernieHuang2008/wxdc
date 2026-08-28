@@ -3,7 +3,8 @@ import logging
 import re
 import json
 from wxdc_bind import BindWeChat, UnBindWeChat
-from datetime import date, datetime, time, timedelta
+import time
+from datetime import date, datetime, timedelta
 from config_utils import LLM_API_KEY, LLM_ENDPOINT, LLM_MODEL, PENDING_ORDERS_DIR, USERS_DIR, WEB_BASE_URL
 from email_utils import send_email
 import wxutils
