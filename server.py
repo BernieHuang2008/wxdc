@@ -13,6 +13,26 @@ from config_utils import APP_PORT, APP_SECRET_KEY, PENDING_ORDERS_DIR, REQ_FILE,
 app = Flask(__name__)
 app.secret_key = APP_SECRET_KEY  # Needed for flash messages
 
+
+def check_perm(filename=None):
+    """
+    if the user (and its auth token) in 'request' environment
+    is authorized to access the given filename, return the user_no if have.
+    """
+    if filename is not None:
+        validation = re.fullmatch(r'order_(\d{7})_\d{4}-\d{2}-\d{2}\.json', filename)  # Basic validation
+        if validation is None:
+            # TODO security alert
+            return False
+
+        if validation.group(1) != request.cookies.get('user_no'):
+            # TODO security alert
+            return False
+
+    # TODO: More checks instead of only checking cookie.
+
+    return request.cookies.get('user_no')
+
 def get_all_users():
     users = []
     if os.path.exists(USERS_DIR):
@@ -60,17 +80,12 @@ def format_orderdata_from_pending_order(data):
     return ",".join(formatted_items)
 
 def place_order(filename, order_data):
-    # order_data format example: 2026-02-02~0~ID~1~',2026-02-02~0~ID~1~'        
+    # order_data format example: 2026-02-02~0~ID~1~',2026-02-02~0~ID~1~'
+    user_no = check_perm(filename)
+    if user_no is False:  # Ensure the user is authorized to submit this order
+        return "Unauthorized: You can only submit your own orders.", 403
 
     try:
-        user_no = None
-        parts = filename.split('_')
-        if len(parts) >= 3 and parts[0] == "order":
-            user_no = parts[1]
-            
-        if not user_no:
-            return False, f"Could not determine user_no from filename: {filename}"
-            
         user_file = os.path.join(USERS_DIR, f"{user_no}.json")
         if not os.path.exists(user_file):
             return False, "User configuration not found"
@@ -148,9 +163,9 @@ def place_order(filename, order_data):
 
 @app.route('/latest-orders')
 def latest_orders():
-    user_no = request.cookies.get('user_no')
-    if not user_no:
-        return "未登录，请点击微信中的激活链接以验证身份。", 401
+    user_no = check_perm()
+    if user_no is False:
+        return "未登录，请点击微信中的激活链接以验证身份。", 403
     
     ensure_pending_orders_dir()
     files = [f for f in os.listdir(PENDING_ORDERS_DIR) if f.endswith('.json')]
@@ -208,9 +223,12 @@ def set_user_no():
 
 @app.route('/pending_orders')
 def list_pending_orders():
+    user_no = check_perm()
+    if user_no is False:
+        return "Unauthorized: Please set your user_no first.", 403
+
     ensure_pending_orders_dir()
-    user_no = request.cookies.get('user_no')
-    files = [f for f in os.listdir(PENDING_ORDERS_DIR) if f.endswith('.json')]  
+    files = [f for f in os.listdir(PENDING_ORDERS_DIR) if f.endswith('.json')]
     if user_no and user_no != "admin_wxdc":
         # Files are named like order_2241112_2026-03-23.json
         files = [f for f in files if f"_{user_no}_" in f]
@@ -225,6 +243,9 @@ def list_pending_orders():
 
 @app.route('/pending_orders/<filename>', methods=['GET'])
 def view_order(filename):
+    if check_perm(filename) is False:
+        return "Unauthorized: You can only view your own orders.", 403
+
     filepath = os.path.join(PENDING_ORDERS_DIR, filename)
     if not os.path.exists(filepath):
         return "Order file not found.", 404
@@ -239,6 +260,9 @@ def view_order(filename):
 
 @app.route('/pending_orders/<filename>/update', methods=['POST'])
 def update_order(filename):
+    if check_perm(filename) is False:
+        return "Unauthorized: You can only update your own orders.", 403
+
     filepath = os.path.join(PENDING_ORDERS_DIR, filename)
     if not os.path.exists(filepath):
         return jsonify({'success': False, 'message': 'File not found'}), 404
@@ -253,6 +277,9 @@ def update_order(filename):
 
 @app.route('/submit_order/<filename>', methods=['POST'])
 def submit_order(filename):
+    if check_perm(filename) is False:
+        return "Unauthorized: You can only submit your own orders.", 403
+
     filepath = os.path.join(PENDING_ORDERS_DIR, filename)
     if not os.path.exists(filepath):
         return jsonify({'success': False, 'message': 'File not found'}), 404
@@ -283,13 +310,7 @@ def submit_order(filename):
 
 @app.route('/submit_order_from_email/<filename>', methods=['GET'])
 def submit_order_from_email(filename):
-    validation = re.fullmatch(r'order_(\d{7})_\d{4}-\d{2}-\d{2}\.json', filename)  # Basic validation
-    if validation is None:
-        # TODO security alert
-        return "Invalid filename format.", 400
-
-    if validation.group(1) != request.cookies.get('user_no'):
-        # TODO security alert
+    if check_perm(filename) is False:
         return "Unauthorized: You can only submit your own orders.", 403
 
     filepath = os.path.join(PENDING_ORDERS_DIR, filename)
@@ -341,9 +362,9 @@ def submit_order_from_email(filename):
 @app.route('/config/dates', methods=['GET'])
 def config_dates():
     configs = []
-    user_no = request.cookies.get('user_no')
-    if not user_no:
-        return "Please set your user_no first.", 403
+    user_no = check_perm()
+    if user_no is False:
+        return "Unauthorized: You can only submit your own orders.", 403
         
     user_file = os.path.join(USERS_DIR, f"{user_no}.json")
     if os.path.exists(user_file):
@@ -379,9 +400,9 @@ def config_dates():
 
 @app.route('/config/dates/add', methods=['POST'])
 def add_date():
-    user_no = request.cookies.get('user_no')
-    if not user_no: return "Please set your user_no first.", 403
-        
+    user_no = check_perm()
+    if user_no is False: return "Unauthorized: You can only submit your own orders.", 403
+
     date_str = request.form.get('date')
     meals = request.form.getlist('meals') # breakfast, lunch, supper
 
@@ -413,8 +434,8 @@ def add_date():
 
 @app.route('/config/dates/delete', methods=['POST'])
 def delete_date():
-    user_no = request.cookies.get('user_no')
-    if not user_no: return "Please set your user_no first.", 403
+    user_no = check_perm()
+    if user_no is False: return "Unauthorized: You can only submit your own orders.", 403
 
     date_to_delete = request.form.get('date')
 
@@ -438,9 +459,9 @@ def delete_date():
 
 @app.route('/config/req', methods=['GET', 'POST'])
 def config_req():
-    user_no = request.cookies.get('user_no')
-    if not user_no:
-        return "Please set your user_no first.", 403
+    user_no = check_perm()
+    if user_no is False:
+        return "Unauthorized: You can only submit your own orders.", 403
 
     user_file = os.path.join(USERS_DIR, f"{user_no}.json")
     if not os.path.exists(user_file):

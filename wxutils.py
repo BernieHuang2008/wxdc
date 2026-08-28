@@ -132,7 +132,7 @@ def ocr(img):
     return data
 
 
-def wait_until(activity, timeuot=5):
+def wait_until(activity, timeout=5):
     """
     等待直到当前应用的 activity 与指定 activity 匹配。
     
@@ -140,14 +140,14 @@ def wait_until(activity, timeuot=5):
         activity: 目标 activity 名称（字符串）
     """
     cnt = 0
-    while cnt < timeuot:
+    while cnt < timeout:
         current_activity = device.app_current().activity
         if current_activity == activity:
             break
         time.sleep(0.25)  # 每隔 0.25 秒检查一次
         cnt += 0.25
     else:
-        raise TimeoutError(f"等待 {timeuot} 秒后仍未匹配到 activity: {activity}, 当前 activity: {current_activity}")
+        raise TimeoutError(f"等待 {timeout} 秒后仍未匹配到 activity: {activity}, 当前 activity: {current_activity}")
 
 
 

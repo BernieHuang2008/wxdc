@@ -44,6 +44,8 @@ def generate_order_summary_image(data, user_no, base_date, output_path="/app/ord
     for day_key in sorted_days:
         day_info = data[day_key]
         date_str = day_info.get("date", "")
+        date_value = datetime.date.fromisoformat(date_str)
+        date_str = f"{date_value.isoformat()} ({date_value.strftime('%a')})"
         auto_orders = day_info.get("auto_order", {})
         meals = {
             "breakfast": auto_orders.get("breakfastorders", []),
