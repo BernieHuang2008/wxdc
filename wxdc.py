@@ -174,7 +174,7 @@ class AutoOrder:
         return self.id_map[real_id]
 
     def fakeid_2_realid(self, fake_id):
-        return self.id_map_reverse[fake_id]
+        return self.id_map_reverse[int(fake_id)]
 
     def organize_menu(self, foodlist):
         new_foodlist = []
@@ -382,7 +382,6 @@ if __name__ == "__main__":
                     html_body = genorder_html.generate_html_table(data, user_no, base_date, output_filename)
                     user_email = user_data.get("email", "berniehuang2008@163.com")
                     send_email(f"自动订餐系统 - {user_no}", html_body, user_email)
-                    break
                 case "wechat":
                     try:
                         logging.info("Wechat ADB Operation Started")
@@ -405,5 +404,4 @@ if __name__ == "__main__":
                         logging.info("WeChat notification sent successfully.")
                     except:
                         logging.exception("Failed to send WeChat notification")
-                        
-                    break
+
