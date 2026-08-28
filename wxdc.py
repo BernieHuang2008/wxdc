@@ -11,7 +11,6 @@ import wxutils
 import genorder_img, genorder_html
 
 def ask_llm(prompt: str) -> str:
-    import os
     # Use Pollinations AI API for LLM interaction
     url = LLM_ENDPOINT
     api_key = LLM_API_KEY
@@ -23,14 +22,17 @@ def ask_llm(prompt: str) -> str:
         "model": LLM_MODEL,
         "messages": [
             {"role": "user", "content": prompt}
-        ]
+        ],
+        "response_format": {
+            'type': 'json_object'
+        }
     }
     try:
         response = requests.post(url, json=payload, headers=headers, verify=False)
         response.raise_for_status()
-        return response.json().get("choices")[0].get("message").get("content")
+        return response.json().get("choices")[0].get("message")
     except requests.exceptions.RequestException as e:
-        logging.error(f"Failed to call Pollinations AI: {e}")
+        logging.error(f"Failed to call LLM: {e}")
         return ""
 
 class AuthInfo:
@@ -192,9 +194,9 @@ class AutoOrder:
                     prompt_menus[date_str][meal] = []
 
         prompt = f"""
-        你是一个食堂自动订餐系统，需要根据用户的需求以及一周的菜单，一次性为一周完成订餐。订餐结果请返回到<result>标签内，格式为一个字典(json)，以日期为键，值为各餐的订餐列表（内容包括：所定餐品的id, name, price）。
+        你是一个食堂自动订餐系统，需要根据用户的需求以及一周的菜单，一次性为一周完成订餐。订餐结果请返回JSON格式。以日期为键，值为各餐的订餐列表（内容包括：所定餐品的id, name, price）。
         例如：
-        <result>
+        # EXAMPLE JSON OUTPUT
         {{
             "2024-03-25": {{
                 "breakfastorders": [{{
@@ -207,23 +209,18 @@ class AutoOrder:
             }},
             "2024-03-26": {{ ... }}
         }}
-        </result>
         其中：
-        - result中的内容必须是合法的json格式。字典的键是日期。如果是休息日没有安排餐饮，可以为空或者省略。
-        - 只能订购提供的菜单中有的餐品（对应日期对应餐次的菜单）。如果没有提供对应的菜单（比如周五晚餐或者菜单为空），请返回空列表 []，或者不要包含该餐次。
+        - 字典的第一级键是日期。如果是休息日没有安排餐饮，可以为空json或者省略。
+        - 只能订购提供的菜单中有的餐品（对应日期对应餐次的菜单）。如果没有提供对应的菜单（比如菜单为空），请返回空列表 []，或者不要包含该餐次。
         - 所有信息必须与菜单上的信息完全一致，才能订餐成功。请谨慎对待！
         - 如果某餐的菜单为空，不能订餐。
-        - 你必须将最终结果返回在<result>标签内，不能放在其他标签内。
-        - 你的所有返回结果（包括think），只能有1个<result>字样。如果出现多次系统将无法识别！
 
-        你可以在 <think> 标签中写出你的思考过程、分析用户喜好与菜品的过程，think step by steps. 
-        最后，你还要在<think>标签内double check你的订餐结果是否满足要求，是否有不合理的地方（比如订了一个菜，但是这个菜在当天的菜单里没有）。如果发现问题，请修改你的订餐结果，直到它完全满足要求为止。
-        你的输出可以不用在意可视化的格式，只要保证<result>标签内的内容是合法的json格式，并且满足上述要求即可。
+        请在思考时double check你的订餐结果是否满足要求，是否有不合理的地方（比如订了一个菜，但是这个菜在当天的菜单里没有）。如果发现问题，请修改你的订餐结果，直到它完全满足要求为止。
 
-        Order Requirement:
+        # Order Requirement:
         {self.requirement}
 
-        Weekly Canteen Menu:
+        # Weekly Canteen Menu:
         {json.dumps(prompt_menus, ensure_ascii=False)}
         """
 
@@ -233,42 +230,30 @@ class AutoOrder:
 
         logging.info("LLM Response: %s", res)
         
-        # Extract content from <result> tags and parse as JSON
-        
-        result_match = re.search(r'<result>(.*?)</result>', res, re.DOTALL)
-        if result_match:
-            result_content = result_match.group(1).strip()
-            try:
-                weekly_orders = json.loads(result_content)
+        weekly_orders = json.loads(res.get("content"))
 
-                # verify and populate
-                for day_key, day_info in weekly_data.items():
-                    date_str = day_info["date"]
-                    day_info["auto_order"] = {
-                        "breakfastorders": [],
-                        "lunchorders": [],
-                        "supperorders": []
-                    }
-                    if date_str in weekly_orders:
-                        for meal in ["breakfastorders", "lunchorders", "supperorders"]:
-                            orders = weekly_orders[date_str].get(meal, [])
-                            # check
-                            valid_orders = []
-                            org_menu = prompt_menus.get(date_str, {}).get(meal, [])
-                            for order in orders:
-                                if any(food['id'] == order['id'] and food['name'] == order['name'] and food['price'] == order['price'] for food in org_menu):
-                                    valid_orders.append(order)
-                                else:
-                                    logging.error(f"Ordered item not found in menu for {date_str} {meal}: {order}")
-                            day_info["auto_order"][meal] = valid_orders
+        # verify and populate
+        for day_key, day_info in weekly_data.items():
+            date_str = day_info["date"]
+            day_info["auto_order"] = {
+                "breakfastorders": [],
+                "lunchorders": [],
+                "supperorders": []
+            }
+            if date_str in weekly_orders:
+                for meal in ["breakfastorders", "lunchorders", "supperorders"]:
+                    orders = weekly_orders[date_str].get(meal, [])
+                    # check
+                    valid_orders = []
+                    org_menu = prompt_menus.get(date_str, {}).get(meal, [])
+                    for order in orders:
+                        if any(food['id'] == order['id'] and food['name'] == order['name'] and food['price'] == order['price'] for food in org_menu):
+                            valid_orders.append(order)
+                        else:
+                            logging.error(f"Ordered item not found in menu for {date_str} {meal}: {order}")
+                    day_info["auto_order"][meal] = valid_orders
 
-                return True
-            except json.JSONDecodeError as e:
-                logging.error(f"Failed to parse JSON from result: {e} / {result_content}")
-                return False
-        else:
-            logging.error(f"No <result> tags found in response: {res}")
-            return False
+        return True
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
