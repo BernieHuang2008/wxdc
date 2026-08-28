@@ -158,8 +158,15 @@ def navigate_to_chat(target_ugroup, target_user):
         open_wechat()
         wait_until("com.tencent.mm.ui.LauncherUI")
 
-    open_tongxunlu()
-    time.sleep(0.3)
+    
+    for _ in range(3):
+        open_tongxunlu()
+        time.sleep(0.3)
+        if find_template(np.array(device.screenshot())[122:181, 456:623], "/app/wxsrc/tongxunlu.png", threshold=0.8)[0] is not None:
+            break
+    else:
+        return "Abort: 未找到通讯录入口"
+
     open_tongxunlu_tags()
     wait_until("com.tencent.mm.plugin.label.ui.ContactLabelManagerUI")
 

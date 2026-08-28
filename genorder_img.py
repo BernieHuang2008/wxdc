@@ -160,7 +160,7 @@ def generate_order_summary_image(data, user_no, base_date, output_path="/app/ord
     img.save(output_path)
     return True
 
-# -------------------- 执行生成 --------------------
+# -------------------- Test --------------------
 if __name__ == "__main__":
     # ===================== 模拟数据（替换为您的实际数据） =====================
     user_no = "1001"

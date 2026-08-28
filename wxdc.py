@@ -3,7 +3,7 @@ import logging
 import re
 import json
 from wxdc_bind import BindWeChat, UnBindWeChat
-from datetime import date, time, timedelta
+from datetime import date, datetime, timedelta
 from config_utils import LLM_API_KEY, LLM_ENDPOINT, LLM_MODEL, PENDING_ORDERS_DIR, USERS_DIR, WEB_BASE_URL
 from email_utils import send_email
 import wxutils
@@ -485,7 +485,7 @@ if __name__ == "__main__":
                         logging.info("Wechat ADB Operation Started")
                         wxutils.connect()
                         wxutils.navigate_to_chat(*user_data.get("wechat"))
-                        wxutils.send_text(f"自动订餐系统 （{time.strftime('%Y-%m-%d', time.localtime())}） - {user_no}")
+                        wxutils.send_text(f"自动订餐系统 （{datetime.now().strftime('%H:%M:%S')}） - {user_no}")
                         genorder_img.generate_order_summary_image(data, user_no, base_date)
                         wxutils.send_image("/app/order_summary.png")
                         wxutils.send_text(f"快捷操作\n\n> 快速提交：{WEB_BASE_URL}/submit_order_from_email/{output_filename}\n\n> 编辑订单：{WEB_BASE_URL}/pending_orders/{output_filename}")
