@@ -170,10 +170,10 @@ def navigate_to_chat(target_ugroup, target_user):
     open_tongxunlu_tags()
     wait_until("com.tencent.mm.plugin.label.ui.ContactLabelManagerUI")
 
-    # ensure 通讯录 page is open
-    screenshot = np.array(device.screenshot())
-    if find_template(screenshot[120:180, 400:680], "/app/wxsrc/tongxunlutag.png", threshold=0.8)[0] is None:
-        return "Abort: 未找到通讯录标签"
+    # # ensure 通讯录 page is open
+    # screenshot = np.array(device.screenshot())
+    # if find_template(screenshot[120:180, 400:680], "/app/wxsrc/tongxunlutag.png", threshold=0.8)[0] is None:
+    #     return "Abort: 未找到通讯录标签"
 
     # find target group
     for _ in range(3):  # TODO: [conf] max attempts depending on the list length
@@ -232,14 +232,23 @@ def navigate_to_chat(target_ugroup, target_user):
 def navigate_to_tongxunlu_from_chat():
     wait_until("com.tencent.mm.ui.chatting.ChattingUI")
     device.keyevent("KEYCODE_BACK")
+    try:
+        wait_until("com.tencent.mm.plugin.profile.ui.ContactInfoUI", timeout=2)
+    except TimeoutError:
+        if device.app_current().activity == "com.tencent.mm.ui.chatting.ChattingUI":
+            device.keyevent("KEYCODE_BACK")
+            wait_until("com.tencent.mm.plugin.profile.ui.ContactInfoUI", timeout=2)
+
     device.keyevent("KEYCODE_BACK")
+    wait_until("com.tencent.mm.ui.mvvm.MvvmContactListUI", timeout=2)
     device.keyevent("KEYCODE_BACK")
+    wait_until("com.tencent.mm.plugin.label.ui.ContactLabelManagerUI", timeout=2)
     device.keyevent("KEYCODE_BACK")
-    wait_until("com.tencent.mm.ui.LauncherUI")
+    wait_until("com.tencent.mm.ui.LauncherUI", timeout=2)
 
 def send_text(text):
     device.click(450, 1833)
-    input_chinese("你好，黄瓜！\n换行\n\n")
+    input_chinese(text)
     device.click(987, 1767)
     device.keyevent("KEYCODE_BACK")
 
