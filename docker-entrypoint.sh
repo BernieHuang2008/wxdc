@@ -2,7 +2,7 @@
 set -e
 
 if [ "${RUN_WXDC_ON_START:-true}" = "true" ]; then
-    python /app/wxdc.py
+    python /app/wxdc.py --runschedule
 
     if [ "${SMOKE_ONLY:-false}" = "true" ]; then
         exit 0

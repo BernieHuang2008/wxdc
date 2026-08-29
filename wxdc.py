@@ -1,6 +1,6 @@
 import requests
 import logging
-import re
+import argparse
 import json
 from wxdc_bind import BindWeChat, UnBindWeChat
 import time
@@ -274,134 +274,160 @@ class AutoOrder:
 
         return True
 
+
+def run_one(user_file):
+    with open(user_file, "r", encoding="utf-8") as f:
+        user_data = json.load(f)
+    
+    user_no = user_data.get("UserNO")
+    logging.info(f"Processing orders for user: {user_no}")
+
+    try:
+        BindWeChat(userno=user_data.get("UserNO"), pwd=user_data.get("pwd"))
+    except Exception as e:
+        logging.exception(f"Failed to bind WeChat.")
+        return
+
+    authinfo = AuthInfo()
+    authinfo.user_no = user_no
+    authinfo.auth_by_openid(user_data.get("open_id"))
+    authinfo.jsessionid = user_data.get("jsessionid")
+
+    base_date = date.today()    # script will be triggered at friday for next week
+    base_date += timedelta(days=(7 - base_date.weekday()))  # next monday
+    
+    data = {}
+
+    auto_order = AutoOrder()
+    auto_order.authinfo = authinfo
+    auto_order.requirement = user_data.get("req", "")
+    # Mon - Fri
+    for day in range(5):
+        canteen_menu = CanteenMenu((base_date + timedelta(days=day)).isoformat(), auth=authinfo)
+
+        data[str(day+1)] = {
+            "date": (base_date + timedelta(days=day)).isoformat(),
+            "menu": canteen_menu.menu
+        }
+    # # Friday: only breakfast and lunch
+    # day = 4
+    # canteen_menu = CanteenMenu((base_date + timedelta(days=day)).isoformat(), auth=authinfo)
+    # print(canteen_menu, canteen_menu.menu)
+    # filtered_friday_menu = {
+    #     "breakfastorders": canteen_menu.menu.get("breakfastorders", []),
+    #     "lunchorders": canteen_menu.menu.get("lunchorders", []),
+    #     "supperorders": []
+    # }
+    # data[str(day+1)] = {
+    #     "date": (base_date + timedelta(days=day)).isoformat(),
+    #     "menu": filtered_friday_menu
+    # }
+
+    # read special config date from user data
+    spec_conf_raw = user_data.get("spec_conf_date", "")
+    if spec_conf_raw:
+        spec_conf = spec_conf_raw.strip().split("\n")
+        for line in spec_conf:
+            line = line.strip()
+            if not line:
+                continue
+            spec_date, submenus = line.split(" ", 1)
+            submenus = submenus.split(" ")
+            
+            spec_date_obj = date.fromisoformat(spec_date)
+            if base_date <= spec_date_obj < base_date + timedelta(days=7):
+                day_offset = (spec_date_obj - base_date).days
+
+                canteen_menu = CanteenMenu(spec_date, auth=authinfo)
+                
+                # Setup menu for the special date, restricting options depending on whether it's an existing day
+                if str(day_offset+1) in data:
+                    current_menu = data[str(day_offset+1)]["menu"]
+                else:
+                    current_menu = {
+                        "breakfastorders": [],
+                        "lunchorders": [],
+                        "supperorders": []
+                    }
+                
+                for submenu in submenus:
+                    meal = f"{submenu}orders"
+                    # Add only specifically listed submenus for special dates
+                    if canteen_menu.menu and meal in canteen_menu.menu:
+                        current_menu[meal] = canteen_menu.menu[meal]
+                
+                data[str(day_offset+1)] = {
+                    "date": spec_date,
+                    "menu": current_menu
+                }
+
+    # Call AI to process whole week orders at once
+    auto_order.auto_order_week(data)
+            
+    output_filename = f"order_{user_no}_{base_date.isoformat()}.json"
+    PENDING_ORDERS_DIR.mkdir(parents=True, exist_ok=True)
+    with open(PENDING_ORDERS_DIR / output_filename, "w", encoding="utf-8") as f:
+        json.dump(data, f)
+
+    # unbind
+    UnBindWeChat(userno=user_no, jsessionid=authinfo.jsessionid, x_access_token=authinfo.token, center_id=authinfo.center_id)
+
+    # Inform User
+    for inform_via in user_data.get("inform_via", []):
+        match inform_via:
+            case "email":
+                html_body = genorder_html.generate_html_table(data, user_no, base_date, output_filename)
+                user_email = user_data.get("email", "berniehuang2008@163.com")
+                send_email(f"自动订餐系统 - {user_no}", html_body, user_email)
+            case "wechat":
+                try:
+                    logging.info("Wechat ADB Operation Started")
+                    wxutils.connect()
+
+                    for _ in range(2):
+                        res = wxutils.navigate_to_chat(*user_data.get("wechat"))
+                        if res == True:
+                            break
+                        else:
+                            logging.error(f"WeChat navigation failed ({_}): {res}.")
+                            wxutils.back_to_home()
+                        
+                    wxutils.send_text(f"自动订餐系统 （{datetime.now().strftime('%H:%M:%S')}） - {user_no}")
+                    genorder_img.generate_order_summary_image(data, user_no, base_date)
+                    wxutils.send_image("/app/order_summary.png")
+                    time.sleep(0.5)
+                    wxutils.send_text(f"快捷操作\n\n> 快速提交：{WEB_BASE_URL}/submit_order_from_email/{output_filename}\n\n> 编辑订单：{WEB_BASE_URL}/pending_orders/{output_filename}")
+                    wxutils.navigate_to_tongxunlu_from_chat()
+                    logging.info("WeChat notification sent successfully.")
+                except:
+                    logging.exception("Failed to send WeChat notification")
+
+
+def schedule_run():
+    user_files = USERS_DIR.glob("*.json")
+    for user_file in user_files:
+        run_one(user_file)
+
+
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
 
-    user_files = USERS_DIR.glob("*.json")
-    for user_file in user_files:
-        with open(user_file, "r", encoding="utf-8") as f:
-            user_data = json.load(f)
-        
-        user_no = user_data.get("UserNO")
-        logging.info(f"Processing orders for user: {user_no}")
+    parser = argparse.ArgumentParser(
+        description="wxdc main script for Auto Ordering."
+    )
+    parser.add_argument('--runschedule', action='store_true', 
+                        help='Run Scheduled Auto Order')
+    parser.add_argument('--runone', action='store_true', 
+                        help='Run One User (use with --user <user_no> )')
+    parser.add_argument('--user', type=str, 
+                        help='user_no (use with --runone)')
 
-        try:
-            BindWeChat(userno=user_data.get("UserNO"), pwd=user_data.get("pwd"))
-        except Exception as e:
-            logging.error(f"Failed to bind WeChat: {e}")
-            continue
+    args = parser.parse_args()
 
-        authinfo = AuthInfo()
-        authinfo.user_no = user_no
-        authinfo.auth_by_openid(user_data.get("open_id"))
-        authinfo.jsessionid = user_data.get("jsessionid")
-
-        base_date = date.today()    # script will be triggered at friday for next week
-        base_date += timedelta(days=(7 - base_date.weekday()))  # next monday
-        
-        data = {}
-
-        auto_order = AutoOrder()
-        auto_order.authinfo = authinfo
-        auto_order.requirement = user_data.get("req", "")
-        # Mon - Fri
-        for day in range(5):
-            canteen_menu = CanteenMenu((base_date + timedelta(days=day)).isoformat(), auth=authinfo)
-
-            data[str(day+1)] = {
-                "date": (base_date + timedelta(days=day)).isoformat(),
-                "menu": canteen_menu.menu
-            }
-        # # Friday: only breakfast and lunch
-        # day = 4
-        # canteen_menu = CanteenMenu((base_date + timedelta(days=day)).isoformat(), auth=authinfo)
-        # print(canteen_menu, canteen_menu.menu)
-        # filtered_friday_menu = {
-        #     "breakfastorders": canteen_menu.menu.get("breakfastorders", []),
-        #     "lunchorders": canteen_menu.menu.get("lunchorders", []),
-        #     "supperorders": []
-        # }
-        # data[str(day+1)] = {
-        #     "date": (base_date + timedelta(days=day)).isoformat(),
-        #     "menu": filtered_friday_menu
-        # }
-
-        # read special config date from user data
-        spec_conf_raw = user_data.get("spec_conf_date", "")
-        if spec_conf_raw:
-            spec_conf = spec_conf_raw.strip().split("\n")
-            for line in spec_conf:
-                line = line.strip()
-                if not line:
-                    continue
-                spec_date, submenus = line.split(" ", 1)
-                submenus = submenus.split(" ")
-                
-                spec_date_obj = date.fromisoformat(spec_date)
-                if base_date <= spec_date_obj < base_date + timedelta(days=7):
-                    day_offset = (spec_date_obj - base_date).days
-
-                    canteen_menu = CanteenMenu(spec_date, auth=authinfo)
-                    
-                    # Setup menu for the special date, restricting options depending on whether it's an existing day
-                    if str(day_offset+1) in data:
-                        current_menu = data[str(day_offset+1)]["menu"]
-                    else:
-                        current_menu = {
-                            "breakfastorders": [],
-                            "lunchorders": [],
-                            "supperorders": []
-                        }
-                    
-                    for submenu in submenus:
-                        meal = f"{submenu}orders"
-                        # Add only specifically listed submenus for special dates
-                        if canteen_menu.menu and meal in canteen_menu.menu:
-                            current_menu[meal] = canteen_menu.menu[meal]
-                    
-                    data[str(day_offset+1)] = {
-                        "date": spec_date,
-                        "menu": current_menu
-                    }
-
-        # Call AI to process whole week orders at once
-        auto_order.auto_order_week(data)
-                
-        output_filename = f"order_{user_no}_{base_date.isoformat()}.json"
-        PENDING_ORDERS_DIR.mkdir(parents=True, exist_ok=True)
-        with open(PENDING_ORDERS_DIR / output_filename, "w", encoding="utf-8") as f:
-            json.dump(data, f)
-
-        # unbind
-        UnBindWeChat(userno=user_no, jsessionid=authinfo.jsessionid, x_access_token=authinfo.token, center_id=authinfo.center_id)
-
-        # Inform User
-        for inform_via in user_data.get("inform_via", []):
-            match inform_via:
-                case "email":
-                    html_body = genorder_html.generate_html_table(data, user_no, base_date, output_filename)
-                    user_email = user_data.get("email", "berniehuang2008@163.com")
-                    send_email(f"自动订餐系统 - {user_no}", html_body, user_email)
-                case "wechat":
-                    try:
-                        logging.info("Wechat ADB Operation Started")
-                        wxutils.connect()
-
-                        for _ in range(2):
-                            res = wxutils.navigate_to_chat(*user_data.get("wechat"))
-                            if res == True:
-                                break
-                            else:
-                                logging.error(f"WeChat navigation failed ({_}): {res}.")
-                                wxutils.back_to_home()
-                            
-                        wxutils.send_text(f"自动订餐系统 （{datetime.now().strftime('%H:%M:%S')}） - {user_no}")
-                        genorder_img.generate_order_summary_image(data, user_no, base_date)
-                        wxutils.send_image("/app/order_summary.png")
-                        time.sleep(0.5)
-                        wxutils.send_text(f"快捷操作\n\n> 快速提交：{WEB_BASE_URL}/submit_order_from_email/{output_filename}\n\n> 编辑订单：{WEB_BASE_URL}/pending_orders/{output_filename}")
-                        wxutils.navigate_to_tongxunlu_from_chat()
-                        logging.info("WeChat notification sent successfully.")
-                    except:
-                        logging.exception("Failed to send WeChat notification")
-
+    # 只有当两个参数都提供时才执行 b()
+    if args.runone and args.user is not None:
+        run_one(USERS_DIR / f"{args.user}.json")
+    elif args.runschedule:
+        schedule_run()
+    else:
+        parser.print_help()

@@ -11,5 +11,5 @@ printf '%s\n' \
     "TZ=${TZ:-Asia/Shanghai}" \
     "DATA_DIR=${DATA_DIR:-/data}" \
     "CONFIG_PATH=${CONFIG_PATH:-/data/config.yaml}" \
-    "${CRON_SCHEDULE} root cd /app && /usr/local/bin/python /app/wxdc.py >> ${CRON_LOG_FILE} 2>&1 && echo date >> /data/logs/cron_activation.log" > /etc/cron.d/wxdc
+    "${CRON_SCHEDULE} root cd /app && /usr/local/bin/python /app/wxdc.py --runschedule >> ${CRON_LOG_FILE} 2>&1 && echo date >> /data/logs/cron_activation.log" > /etc/cron.d/wxdc
 chmod 0644 /etc/cron.d/wxdc
