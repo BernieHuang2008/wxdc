@@ -458,7 +458,7 @@ def api_config_order_date():
         day_key = str(start_key + day_offset)
         meals = str(selected_days.get(day_key, ""))
 
-        meals = "".join(meals & set("bls"))
+        meals = "".join(set(meals) & set("bls"))
         if meals:
             formatted_order_date[day_key] = meals
 

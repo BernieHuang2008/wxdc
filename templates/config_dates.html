@@ -505,9 +505,10 @@
         // ================================================================
         function switchWeek(week) {
             if (week === activeWeek) return;
-
+            
             activeWeek = week;
             renderTable();
+            document.getElementById("weekNext").checked = true;
 
             // 清空状态信息
             const statusEl = document.getElementById("saveOrderDateStatus");

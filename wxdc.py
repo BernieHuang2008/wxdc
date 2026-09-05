@@ -133,13 +133,18 @@ class CanteenMenu:
             tolerance -= 1
 
             response = requests.post(url, params=params, headers=headers)
-            if response.status_code == 401:
-                # Unauthorized access
-                self.authinfo.reauth()
-                continue
-            
-            logging.info("Status Code:", response.status_code)
-            logging.info("Response Headers:", response.headers)
+
+            match response.status_code:
+                case 200:
+                    pass
+                case 401:
+                    # Unauthorized access
+                    self.authinfo.reauth()
+                    continue
+                case _:
+                    logging.info("Status Code:", str(response.status_code))
+                    logging.info("Response Headers:", str(response.headers))
+                    continue
             
             # Try to parse JSON if possible
             try:
@@ -313,12 +318,15 @@ def run_one(user_file):
     auto_order = AutoOrder()
     auto_order.authinfo = authinfo
     auto_order.requirement = user_data.get("req", "")
+    flag_next_week = False
     # Mon - Fri
     for day, dayorder in user_data.get("order_date", {}).items():
         day = int(day) - 1  # convert to 0-based index
         if day < 0 or day > 13:
             logging.warning(f"Invalid day in order_date: {day}. Skipping.")
             continue
+        if day > 7:
+            flag_next_week = True
 
         canteen_menu = get_canteen_menu((base_date + timedelta(days=day)).isoformat(), authinfo)
 
@@ -330,6 +338,11 @@ def run_one(user_file):
                 "supperorders": canteen_menu.menu.get("supperorders", []) if "s" in dayorder else []
             }
         }
+    if flag_next_week:
+        base_date += timedelta(days=7)  # next monday
+
+    # unbind
+    UnBindWeChat(userno=user_no, jsessionid=authinfo.jsessionid, x_access_token=authinfo.token, center_id=authinfo.center_id)
 
     # # Friday: only breakfast and lunch
     # day = 4
@@ -390,9 +403,6 @@ def run_one(user_file):
     PENDING_ORDERS_DIR.mkdir(parents=True, exist_ok=True)
     with open(PENDING_ORDERS_DIR / output_filename, "w", encoding="utf-8") as f:
         json.dump(data, f)
-
-    # unbind
-    UnBindWeChat(userno=user_no, jsessionid=authinfo.jsessionid, x_access_token=authinfo.token, center_id=authinfo.center_id)
 
     # Inform User
     for inform_via in user_data.get("inform_via", []):
