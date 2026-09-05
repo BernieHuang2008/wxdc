@@ -26,112 +26,217 @@
             font-size: 0.92rem;
         }
 
-        .week-switch .btn-check:checked + .btn {
+        .week-switch .btn-check:checked+.btn {
             background: rgba(13, 110, 253, 0.12);
             border-color: rgba(13, 110, 253, 0.75);
             color: #0d6efd;
         }
 
-        .day-grid {
-            display: grid;
-            grid-template-columns: repeat(7, minmax(0, 1fr));
-            gap: 10px;
+        /* ----- 表格样式 ----- */
+        .meal-table-wrap {
+            overflow-x: auto;
+            margin-top: 6px;
         }
 
-        @media (max-width: 992px) {
-            .day-grid {
-                grid-template-columns: repeat(2, minmax(0, 1fr));
-            }
-        }
-
-        @media (max-width: 576px) {
-            .day-grid {
-                grid-template-columns: 1fr;
-            }
-        }
-
-        .day-tile {
-            min-height: 118px;
-            border: 1px solid rgba(13, 110, 253, 0.14);
+        .meal-table {
+            width: 100%;
+            border-collapse: collapse;
             border-radius: 10px;
-            padding: 10px 12px;
-            background: #fff;
-            text-align: left;
-            transition: all 0.15s ease;
+            overflow: hidden;
+            box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
         }
 
-        .day-tile:hover {
-            border-color: rgba(13, 110, 253, 0.4);
+        .meal-table th {
+            background: #f0f4fb;
+            color: #1f2d3d;
+            font-weight: 600;
+            padding: 12px 8px;
+            text-align: center;
+            border-bottom: 2px solid #dbe5f2;
+            font-size: 0.95rem;
         }
 
-        .day-tile.active {
-            border-color: rgba(13, 110, 253, 0.85);
-            box-shadow: 0 0 0 3px rgba(13, 110, 253, 0.14);
+        .meal-table td {
+            padding: 0;
+            text-align: center;
+            vertical-align: middle;
+            border-bottom: 1px solid #e6edf6;
+            border-right: 1px solid #e6edf6;
+            transition: background 0.12s ease;
         }
 
-        .day-tile.selected {
-            background: rgba(13, 110, 253, 0.1);
+        .meal-table td:last-child {
+            border-right: none;
         }
 
-        .day-title {
+        .meal-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        /* 行头（日期） */
+        .day-label {
+            background: #fafcff;
             font-weight: 600;
             color: #1f2d3d;
+            padding: 12px 8px;
+            text-align: center;
+            border-right: 1px solid #e6edf6;
+            font-size: 0.95rem;
+            white-space: nowrap;
+            min-width: 72px;
         }
 
-        .day-date {
-            color: #6c757d;
-            font-size: 0.86rem;
+        /* 可点击的单元格 */
+        .meal-cell {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 56px;
+            cursor: pointer;
+            user-select: none;
+            padding: 8px 4px;
+            font-size: 1.4rem;
+            font-weight: 400;
+            transition: background 0.12s ease, color 0.12s ease, box-shadow 0.12s ease;
+            background: #ffffff;
+            color: #b0c4db;
+            border-radius: 0;
+            position: relative;
+        }
+
+        .meal-cell:hover {
+            background: #f0f6ff;
+            color: #6c8fc0;
+        }
+
+        .meal-cell.checked {
+            background: rgba(13, 110, 253, 0.12);
+            color: #0d6efd;
+        }
+
+        .meal-cell.checked:hover {
+            background: rgba(13, 110, 253, 0.20);
+            color: #0a58ca;
+        }
+
+        .meal-cell .check-mark {
+            display: inline-block;
+            line-height: 1;
+            transition: transform 0.15s ease;
+        }
+
+        .meal-cell.checked .check-mark {
+            transform: scale(1);
+        }
+
+        .meal-cell:not(.checked) .check-mark {
+            opacity: 0.35;
+            transform: scale(0.85);
+        }
+
+        .meal-cell .meal-label-sm {
+            display: none;
+            font-size: 0.7rem;
+            font-weight: 500;
+            letter-spacing: 0.02em;
             margin-top: 2px;
+            color: inherit;
         }
 
-        .meal-chip {
-            display: inline-flex;
+        /* 让单元格在窄屏时显示文字标签 */
+        @media (max-width: 480px) {
+            .meal-cell .meal-label-sm {
+                display: block;
+            }
+            .meal-cell .check-mark {
+                font-size: 1.1rem;
+            }
+        }
+
+        /* 保存按钮区域 */
+        .save-area {
+            display: flex;
             align-items: center;
-            padding: 0.2rem 0.5rem;
-            margin-right: 0.25rem;
-            margin-top: 0.35rem;
-            border-radius: 999px;
-            background: rgba(13, 110, 253, 0.08);
-            color: #0d6efd;
-            font-size: 0.75rem;
+            justify-content: flex-end;
+            gap: 16px;
+            flex-wrap: wrap;
+            margin-top: 18px;
+            padding-top: 14px;
+            border-top: 1px solid #e6edf6;
         }
 
-        .meal-panel {
-            border: 1px solid rgba(13, 110, 253, 0.18);
-            border-radius: 10px;
-            background: #fbfdff;
-            padding: 14px;
+        .save-area .status-text {
+            color: #6c757d;
+            font-size: 0.9rem;
+            min-height: 1.5rem;
         }
 
-        .meal-toggle {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.4rem;
-            margin-right: 0.5rem;
-            margin-bottom: 0.5rem;
-            padding: 0.45rem 0.8rem;
-            border: 1px solid #cfd8ea;
-            border-radius: 999px;
-            background: #fff;
-            color: #24364b;
+        .save-area .status-text.success {
+            color: #198754;
+        }
+        .save-area .status-text.error {
+            color: #dc3545;
         }
 
-        .meal-toggle.active {
-            background: rgba(13, 110, 253, 0.14);
-            border-color: rgba(13, 110, 253, 0.75);
-            color: #0d6efd;
-        }
-
+        /* 特殊日期部分保留原样式 */
         .special-item {
             border: 1px solid #e6edf6;
             border-radius: 10px;
             padding: 14px;
             background: #fff;
         }
+
+        .special-item .badge {
+            font-weight: 500;
+        }
+
+        /* 小屏适配 */
+        @media (max-width: 576px) {
+            .day-label {
+                min-width: 52px;
+                font-size: 0.85rem;
+                padding: 10px 4px;
+            }
+            .meal-cell {
+                min-height: 48px;
+                font-size: 1.1rem;
+                padding: 6px 2px;
+            }
+            .meal-table th {
+                font-size: 0.82rem;
+                padding: 10px 4px;
+            }
+            .panel {
+                padding: 14px;
+            }
+        }
+
+        /* 让表格在窄屏时更紧凑 */
+        @media (max-width: 400px) {
+            .day-label {
+                min-width: 44px;
+                font-size: 0.78rem;
+            }
+            .meal-cell {
+                min-height: 42px;
+                font-size: 0.95rem;
+            }
+            .meal-table th {
+                font-size: 0.75rem;
+                padding: 8px 2px;
+            }
+        }
+
+        /* 给本周/下周切换加点间距 */
+        .week-switch .btn {
+            min-width: 70px;
+        }
     </style>
 </head>
 <body>
     <div class="container-fluid page-shell py-4">
+
+        <!-- 面包屑 -->
         <nav aria-label="breadcrumb" class="mb-3">
             <ol class="breadcrumb mb-0">
                 <li class="breadcrumb-item"><a href="/">Home</a></li>
@@ -139,21 +244,25 @@
             </ol>
         </nav>
 
+        <!-- Flash 消息 -->
         {% with messages = get_flashed_messages(with_categories=true) %}
-          {% if messages %}
-            <div class="mb-3">
+        {% if messages %}
+        <div class="mb-3">
             {% for category, message in messages %}
-              <div class="alert alert-{{ category }} mb-2">{{ message }}</div>
+            <div class="alert alert-{{ category }} mb-2">{{ message }}</div>
             {% endfor %}
-            </div>
-          {% endif %}
+        </div>
+        {% endif %}
         {% endwith %}
 
+        <!-- ============================================================ -->
+        <!--  常规订餐配置 — 表格版                                         -->
+        <!-- ============================================================ -->
         <section class="panel mb-4">
             <div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-3">
                 <div>
-                    <h1 class="h4 mb-1">订餐配置</h1>
-                    <div class="muted-hint">先选周，再选日期和餐次。蓝色背景表示已选中。</div>
+                    <h1 class="h4 mb-1">常规订餐配置</h1>
+                    <div class="muted-hint">“下周”表示提前一周进行订餐。点击表格单元格切换勾选。</div>
                 </div>
 
                 <div class="btn-group week-switch" role="group" aria-label="week selector">
@@ -164,29 +273,38 @@
                 </div>
             </div>
 
-            <div class="day-grid" id="dayGrid"></div>
+            <!-- 表格 -->
+            <div class="meal-table-wrap">
+                <table class="meal-table" id="mealTable">
+                    <thead>
+                        <tr>
+                            <th style="min-width:72px;">日期</th>
+                            <th>早餐</th>
+                            <th>午餐</th>
+                            <th>晚餐</th>
+                        </tr>
+                    </thead>
+                    <tbody id="mealTableBody">
+                        <!-- 由 JavaScript 动态生成 -->
+                    </tbody>
+                </table>
+            </div>
 
-            <div class="meal-panel mt-3">
-                <div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-2">
-                    <div>
-                        <div class="fw-semibold" id="activeDayLabel">周一</div>
-                        <div class="muted-hint" id="activeDayDate"></div>
-                    </div>
-                    <div class="text-end">
-                        <button type="button" class="btn btn-primary" id="saveOrderDateBtn">保存订餐配置</button>
-                        <div class="muted-hint mt-2" id="saveOrderDateStatus"></div>
-                    </div>
-                </div>
-                <div id="mealOptions"></div>
-                <div class="muted-hint mt-2">选中某一天后，再勾选早餐、午餐、晚餐。任意一餐被选中时，该天在上方日历会变蓝。</div>
+            <!-- 保存区域 -->
+            <div class="save-area">
+                <div class="status-text" id="saveOrderDateStatus"></div>
+                <button type="button" class="btn btn-primary" id="saveOrderDateBtn">保存订餐配置</button>
             </div>
         </section>
 
+        <!-- ============================================================ -->
+        <!--  特殊订餐日期  （保持不变）                                    -->
+        <!-- ============================================================ -->
         <section class="panel">
             <div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-3">
                 <div>
-                    <h2 class="h5 mb-1">以前的 special date 逻辑</h2>
-                    <div class="muted-hint">下面仍然保留原来的日期 + 餐次配置。</div>
+                    <h2 class="h5 mb-1">特殊订餐日期</h2>
+                    <div class="muted-hint">调休之类的时候可以用</div>
                 </div>
             </div>
 
@@ -196,98 +314,104 @@
                         <h3 class="h6 mb-3">新增特殊日期</h3>
                         <form action="/config/dates/add" method="post">
                             <div class="mb-3">
-                                <label for="date" class="form-label">Date</label>
+                                <label for="date" class="form-label">日期</label>
                                 <input type="date" class="form-control" id="date" name="date" required>
                             </div>
                             <div class="mb-3">
-                                <label class="form-label">Meals</label>
+                                <label class="form-label">餐食</label>
                                 <div class="form-check">
                                     <input class="form-check-input" type="checkbox" value="breakfast" id="breakfast" name="meals">
-                                    <label class="form-check-label" for="breakfast">Breakfast</label>
+                                    <label class="form-check-label" for="breakfast">早餐</label>
                                 </div>
                                 <div class="form-check">
                                     <input class="form-check-input" type="checkbox" value="lunch" id="lunch" name="meals">
-                                    <label class="form-check-label" for="lunch">Lunch</label>
+                                    <label class="form-check-label" for="lunch">午餐</label>
                                 </div>
                                 <div class="form-check">
                                     <input class="form-check-input" type="checkbox" value="supper" id="supper" name="meals">
-                                    <label class="form-check-label" for="supper">Supper</label>
+                                    <label class="form-check-label" for="supper">晚餐</label>
                                 </div>
                             </div>
-                            <button type="submit" class="btn btn-success w-100">Add Configuration</button>
+                            <button type="submit" class="btn btn-success w-100">添加配置</button>
                         </form>
                     </div>
                 </div>
 
                 <div class="col-lg-8">
                     <div class="special-item">
-                        <h3 class="h6 mb-3">Upcoming Special Dates</h3>
+                        <h3 class="h6 mb-3">即将到来的特殊日期</h3>
                         {% if configs %}
-                            <div class="row g-3">
-                                {% for config in configs %}
-                                <div class="col-md-6">
-                                    <div class="special-item h-100">
-                                        <div class="d-flex justify-content-between align-items-start gap-2">
-                                            <div>
-                                                <div class="fw-semibold text-primary">{{ config.date }}</div>
-                                                <div class="mt-2">
-                                                    {% for meal in config.meals %}
-                                                        <span class="badge bg-secondary me-1">{{ meal|capitalize }}</span>
-                                                    {% endfor %}
-                                                </div>
+                        <div class="row g-3">
+                            {% for config in configs %}
+                            <div class="col-md-6">
+                                <div class="special-item h-100">
+                                    <div class="d-flex justify-content-between align-items-start gap-2">
+                                        <div>
+                                            <div class="fw-semibold text-primary">{{ config.date }}</div>
+                                            <div class="mt-2">
+                                                {% for meal in config.meals %}
+                                                <span class="badge bg-secondary me-1">{{ meal|capitalize }}</span>
+                                                {% endfor %}
                                             </div>
-                                            <form action="/config/dates/delete" method="post" onsubmit="return confirm('Delete config for {{ config.date }}?');">
-                                                <input type="hidden" name="date" value="{{ config.date }}">
-                                                <button type="submit" class="btn btn-outline-danger btn-sm">×</button>
-                                            </form>
                                         </div>
+                                        <form action="/config/dates/delete" method="post" onsubmit="return confirm('确定删除 {{ config.date }} 的配置吗？');">
+                                            <input type="hidden" name="date" value="{{ config.date }}">
+                                            <button type="submit" class="btn btn-outline-danger btn-sm">×</button>
+                                        </form>
                                     </div>
                                 </div>
-                                {% endfor %}
                             </div>
+                            {% endfor %}
+                        </div>
                         {% else %}
-                            <p class="text-muted mb-0">No upcoming special dates configured.</p>
+                        <p class="text-muted mb-0">暂无特殊日期配置。</p>
                         {% endif %}
                     </div>
                 </div>
             </div>
         </section>
+
     </div>
 
     <script>
+        // ================================================================
+        //  数据 & 状态
+        // ================================================================
         const initialOrderDate = {{ order_date | tojson }};
         const weekdayLabels = ["一", "二", "三", "四", "五", "六", "日"];
         const mealLabels = { b: "早餐", l: "午餐", s: "晚餐" };
+        const mealKeys = ["b", "l", "s"];
+        const mealDisplay = { b: "早餐", l: "午餐", s: "晚餐" };
+
+        // weekState: { current: { 1: '', 2: '', ... }, next: { 1: '', 2: '', ... } }
         const weekState = {
             current: { 1: "", 2: "", 3: "", 4: "", 5: "", 6: "", 7: "" },
             next: { 1: "", 2: "", 3: "", 4: "", 5: "", 6: "", 7: "" }
         };
 
-        let activeWeek = "current";
-        let activeDayIndex = 1;
+        let activeWeek = "current"; // 'current' | 'next'
 
+        // ================================================================
+        //  工具函数
+        // ================================================================
         function pad(num) {
             return String(num).padStart(2, "0");
         }
 
-        function formatDate(date) {
-            return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
-        }
-
         function normalizeMealString(value) {
-            if (typeof value !== "string") {
-                return "";
-            }
-            return ["b", "l", "s"].filter((meal) => value.includes(meal)).join("");
+            if (typeof value !== "string") return "";
+            return mealKeys.filter((m) => value.includes(m)).join("");
         }
 
+        // ================================================================
+        //  数据初始化
+        // ================================================================
         function hydrateWeekState() {
+            // initialOrderDate 格式: { '1': 'bl', '2': 'bls', ... }  1-7 本周, 8-14 下周
             Object.entries(initialOrderDate || {}).forEach(([key, value]) => {
                 const dayKey = Number.parseInt(key, 10);
                 const mealValue = normalizeMealString(value);
-                if (!Number.isInteger(dayKey) || dayKey < 1 || dayKey > 14 || !mealValue) {
-                    return;
-                }
+                if (!Number.isInteger(dayKey) || dayKey < 1 || dayKey > 14 || !mealValue) return;
                 if (dayKey <= 7) {
                     weekState.current[dayKey] = mealValue;
                 } else {
@@ -296,135 +420,167 @@
             });
         }
 
+        // ================================================================
+        //  获取当前周的引用
+        // ================================================================
         function getCurrentWeekState() {
             return weekState[activeWeek];
         }
 
-        function renderMealOptions() {
-            const weekLabel = activeWeek === "current" ? "本周" : "下周";
-            const dayLabel = `周${weekdayLabels[activeDayIndex - 1]}`;
+        // ================================================================
+        //  渲染表格
+        // ================================================================
+        function renderTable() {
+            const tbody = document.getElementById("mealTableBody");
+            const weekData = getCurrentWeekState();
+            tbody.innerHTML = "";
 
-            const mealContainer = document.getElementById("mealOptions");
-            const currentValue = getCurrentWeekState()[activeDayIndex] || "";
-            mealContainer.innerHTML = "";
+            for (let i = 1; i <= 7; i++) {
+                const tr = document.createElement("tr");
+                const meals = weekData[i] || ""; // 如 "bl" 或 "bls"
 
-            ["b", "l", "s"].forEach((mealKey) => {
-                const button = document.createElement("button");
-                button.type = "button";
-                button.className = `meal-toggle ${currentValue.includes(mealKey) ? "active" : ""}`;
-                button.setAttribute("aria-pressed", currentValue.includes(mealKey) ? "true" : "false");
-                button.innerHTML = `<span>${currentValue.includes(mealKey) ? "☑" : "☐"}</span><span>${mealLabels[mealKey]}</span>`;
-                button.addEventListener("click", () => {
-                    const nextMeals = new Set((getCurrentWeekState()[activeDayIndex] || "").split(""));
-                    if (nextMeals.has(mealKey)) {
-                        nextMeals.delete(mealKey);
-                    } else {
-                        nextMeals.add(mealKey);
+                // ---- 行头 ----
+                const tdLabel = document.createElement("td");
+                tdLabel.className = "day-label";
+                tdLabel.textContent = `周${weekdayLabels[i - 1]}`;
+                tr.appendChild(tdLabel);
+
+                // ---- 三餐列 ----
+                mealKeys.forEach((mealKey) => {
+                    const td = document.createElement("td");
+                    const cell = document.createElement("div");
+                    cell.className = "meal-cell";
+                    const isChecked = meals.includes(mealKey);
+
+                    if (isChecked) {
+                        cell.classList.add("checked");
                     }
-                    getCurrentWeekState()[activeDayIndex] = ["b", "l", "s"].filter((item) => nextMeals.has(item)).join("");
-                    renderWeek();
+
+                    // 勾选标记
+                    const mark = document.createElement("span");
+                    mark.className = "check-mark";
+                    mark.textContent = isChecked ? "✓" : "☐";
+                    cell.appendChild(mark);
+
+                    // 小屏显示文字标签
+                    const label = document.createElement("span");
+                    label.className = "meal-label-sm";
+                    label.textContent = mealDisplay[mealKey];
+                    cell.appendChild(label);
+
+                    // 点击切换
+                    cell.addEventListener("click", (e) => {
+                        e.stopPropagation();
+                        toggleMeal(i, mealKey);
+                    });
+
+                    td.appendChild(cell);
+                    tr.appendChild(td);
                 });
-                mealContainer.appendChild(button);
-            });
+
+                tbody.appendChild(tr);
+            }
         }
 
-        function renderWeek() {
-            const grid = document.getElementById("dayGrid");
-            const weekValue = getCurrentWeekState();
-            grid.innerHTML = "";
+        // ================================================================
+        //  切换餐食状态
+        // ================================================================
+        function toggleMeal(dayIndex, mealKey) {
+            const weekData = getCurrentWeekState();
+            const current = weekData[dayIndex] || "";
+            const set = new Set(current.split(""));
 
-            for (let i = 1; i <= 7; i += 1) {
-                const meals = weekValue[i] || "";
-
-                const button = document.createElement("button");
-                button.type = "button";
-                button.className = `day-tile ${activeDayIndex === i ? "active" : ""} ${meals ? "selected" : ""}`;
-                button.innerHTML = `
-                    <div class="day-title">周${weekdayLabels[i - 1]}</div>
-                    <div class="mt-2" data-meals></div>
-                `;
-                const mealWrap = button.querySelector("[data-meals]");
-                if (meals) {
-                    ["b", "l", "s"].forEach((mealKey) => {
-                        if (meals.includes(mealKey)) {
-                            const chip = document.createElement("span");
-                            chip.className = "meal-chip";
-                            chip.textContent = mealLabels[mealKey];
-                            mealWrap.appendChild(chip);
-                        }
-                    });
-                } else {
-                    const empty = document.createElement("div");
-                    empty.className = "muted-hint mt-2";
-                    empty.textContent = "未选择";
-                    mealWrap.appendChild(empty);
-                }
-
-                button.addEventListener("click", () => {
-                    activeDayIndex = i;
-                    renderWeek();
-                });
-                grid.appendChild(button);
+            if (set.has(mealKey)) {
+                set.delete(mealKey);
+            } else {
+                set.add(mealKey);
             }
 
-            renderMealOptions();
+            // 按顺序拼接
+            const newValue = mealKeys.filter((m) => set.has(m)).join("");
+            weekData[dayIndex] = newValue;
+
+            // 重新渲染表格（只更新UI，不重新创建DOM更高效，但为了简单清晰，全量刷新）
+            renderTable();
         }
 
+        // ================================================================
+        //  切换 本周 / 下周
+        // ================================================================
+        function switchWeek(week) {
+            if (week === activeWeek) return;
+            activeWeek = week;
+            renderTable();
+            // 清空状态信息
+            const statusEl = document.getElementById("saveOrderDateStatus");
+            statusEl.textContent = "";
+            statusEl.className = "status-text";
+        }
+
+        // ================================================================
+        //  保存
+        // ================================================================
         async function saveOrderDate() {
-            const statusNode = document.getElementById("saveOrderDateStatus");
+            const statusEl = document.getElementById("saveOrderDateStatus");
             const button = document.getElementById("saveOrderDateBtn");
+
+            const weekData = getCurrentWeekState();
             const payload = { week: activeWeek, order_date: {} };
 
-            for (let i = 1; i <= 7; i += 1) {
-                const meals = getCurrentWeekState()[i] || "";
+            for (let i = 1; i <= 7; i++) {
+                const meals = weekData[i] || "";
                 if (meals) {
                     payload.order_date[String(i)] = meals;
                 }
             }
 
             button.disabled = true;
-            statusNode.textContent = "保存中...";
+            statusEl.textContent = "保存中...";
+            statusEl.className = "status-text";
 
             try {
                 const response = await fetch("/api/config/order_date", {
                     method: "POST",
-                    headers: {
-                        "Content-Type": "application/json"
-                    },
+                    headers: { "Content-Type": "application/json" },
                     body: JSON.stringify(payload)
                 });
                 const result = await response.json();
                 if (!response.ok || !result.success) {
                     throw new Error(result.message || "保存失败");
                 }
-                statusNode.textContent = result.message || "已保存";
+                statusEl.textContent = result.message || "已保存 ✓";
+                statusEl.className = "status-text success";
             } catch (error) {
-                statusNode.textContent = error.message || "保存失败";
+                statusEl.textContent = error.message || "保存失败";
+                statusEl.className = "status-text error";
             } finally {
                 button.disabled = false;
             }
         }
 
+        // ================================================================
+        //  事件绑定
+        // ================================================================
         document.getElementById("weekCurrent").addEventListener("change", () => {
             if (document.getElementById("weekCurrent").checked) {
-                activeWeek = "current";
-                activeDayIndex = 1;
-                renderWeek();
+                switchWeek("current");
             }
         });
 
         document.getElementById("weekNext").addEventListener("change", () => {
             if (document.getElementById("weekNext").checked) {
-                activeWeek = "next";
-                activeDayIndex = 1;
-                renderWeek();
+                switchWeek("next");
             }
         });
 
         document.getElementById("saveOrderDateBtn").addEventListener("click", saveOrderDate);
 
+        // ================================================================
+        //  启动
+        // ================================================================
         hydrateWeekState();
-        renderWeek();
+        renderTable();
     </script>
+
 </body>
 </html>
