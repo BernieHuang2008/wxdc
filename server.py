@@ -4,7 +4,7 @@ from flask import Flask, render_template, request, redirect, url_for, flash, jso
 import os
 import json
 import requests
-from datetime import datetime
+from datetime import datetime, timedelta
 import register
 from wxdc import AuthInfo
 from wxdc_bind import UnBindWeChat
@@ -46,6 +46,39 @@ def ensure_pending_orders_dir():
         os.makedirs(PENDING_ORDERS_DIR)
 
 ensure_pending_orders_dir()
+
+ORDER_DATE_MEAL_ORDER = ("b", "l", "s")
+
+
+def get_next_order_monday():
+    today = datetime.now().date()
+    return today + timedelta(days=(7 - today.weekday()))
+
+
+def normalize_meal_string(meals):
+    if not isinstance(meals, str):
+        return ""
+    normalized = []
+    for meal in ORDER_DATE_MEAL_ORDER:
+        if meal in meals and meal not in normalized:
+            normalized.append(meal)
+    return "".join(normalized)
+
+
+def load_user_data(user_no):
+    user_file = os.path.join(USERS_DIR, f"{user_no}.json")
+    if not os.path.exists(user_file):
+        return None, user_file
+
+    with open(user_file, "r", encoding="utf-8") as f:
+        user_data = json.load(f)
+    return user_data, user_file
+
+
+def save_user_data(user_file, user_data):
+    with open(user_file, "w", encoding="utf-8") as f:
+        json.dump(user_data, f, ensure_ascii=False, indent=4)
+
 
 def format_orderdata_from_pending_order(data):
     formatted_items = []
@@ -365,11 +398,9 @@ def config_dates():
     user_no = check_perm()
     if user_no is False:
         return "Unauthorized: You can only submit your own orders.", 403
-        
-    user_file = os.path.join(USERS_DIR, f"{user_no}.json")
-    if os.path.exists(user_file):
-        with open(user_file, 'r', encoding='utf-8') as f:
-            user_data = json.load(f)
+
+    user_data, _ = load_user_data(user_no)
+    if user_data is not None:
         spec_conf_date_content = user_data.get('spec_conf_date', '')
         lines = spec_conf_date_content.split('\n') if spec_conf_date_content else []
         today = datetime.now().date()
@@ -396,7 +427,77 @@ def config_dates():
 
     # Sort by date
     configs.sort(key=lambda x: x['date'])
-    return render_template('config_dates.html', configs=configs)
+    order_date = {}
+    if user_data is not None and isinstance(user_data.get('order_date', {}), dict):
+        order_date = user_data.get('order_date', {})
+    return render_template(
+        'config_dates.html',
+        configs=configs,
+        order_date=order_date
+    )
+
+
+@app.route('/api/config/order_date', methods=['POST'])
+def api_config_order_date():
+    user_no = check_perm()
+    if user_no is False:
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+
+    payload = request.get_json(silent=True) or {}
+    week = payload.get('week')
+    selected_days = payload.get('order_date')
+
+    if week not in ('current', 'next'):
+        return jsonify({'success': False, 'message': 'Invalid week selector.'}), 400
+    if not isinstance(selected_days, dict):
+        return jsonify({'success': False, 'message': 'order_date must be an object.'}), 400
+
+    start_key = 1 if week == 'current' else 8
+    end_key = start_key + 6
+    updated_week = {}
+
+    for raw_day, meal_value in selected_days.items():
+        if not str(raw_day).isdigit():
+            return jsonify({'success': False, 'message': f'Invalid day key: {raw_day}'}), 400
+
+        day_index = int(raw_day)
+        if day_index < 1 or day_index > 7:
+            return jsonify({'success': False, 'message': f'Day must be between 1 and 7, got {raw_day}'}), 400
+
+        normalized = normalize_meal_string(meal_value)
+        if meal_value and not normalized:
+            return jsonify({'success': False, 'message': f'Invalid meal selection for day {raw_day}'}), 400
+
+        if normalized:
+            updated_week[str(start_key + day_index - 1)] = normalized
+
+    user_data, user_file = load_user_data(user_no)
+    if user_data is None:
+        return jsonify({'success': False, 'message': 'User not found.'}), 404
+
+    existing_order_date = user_data.get('order_date', {})
+    if not isinstance(existing_order_date, dict):
+        existing_order_date = {}
+
+    merged_order_date = {
+        key: value
+        for key, value in existing_order_date.items()
+        if not (str(key).isdigit() and start_key <= int(key) <= end_key)
+    }
+    merged_order_date.update(updated_week)
+
+    ordered_items = sorted(
+        merged_order_date.items(),
+        key=lambda item: int(item[0]) if str(item[0]).isdigit() else 999,
+    )
+    user_data['order_date'] = {key: value for key, value in ordered_items}
+    save_user_data(user_file, user_data)
+
+    return jsonify({
+        'success': True,
+        'message': '订餐配置已保存。',
+        'order_date': user_data['order_date'],
+    })
 
 @app.route('/config/dates/add', methods=['POST'])
 def add_date():
@@ -412,11 +513,8 @@ def add_date():
     meals_str = " ".join(meals)
     new_line = f"{date_str} {meals_str}"
 
-    user_file = os.path.join(USERS_DIR, f"{user_no}.json")
-    if not os.path.exists(user_file): return "User not found.", 404
-
-    with open(user_file, 'r', encoding='utf-8') as f:
-        user_data = json.load(f)
+    user_data, user_file = load_user_data(user_no)
+    if user_data is None: return "User not found.", 404
 
     spec_conf_date_content = user_data.get('spec_conf_date', '')
     all_lines = [l.strip() for l in spec_conf_date_content.split('\n') if l.strip()]
@@ -427,8 +525,7 @@ def add_date():
     all_lines.sort() # Keep file sorted
 
     user_data['spec_conf_date'] = "\n".join(all_lines)
-    with open(user_file, 'w', encoding='utf-8') as f:
-        json.dump(user_data, f, ensure_ascii=False, indent=4)
+    save_user_data(user_file, user_data)
 
     return redirect(url_for('config_dates'))
 
@@ -439,11 +536,8 @@ def delete_date():
 
     date_to_delete = request.form.get('date')
 
-    user_file = os.path.join(USERS_DIR, f"{user_no}.json")
-    if not os.path.exists(user_file): return "User not found.", 404
-
-    with open(user_file, 'r', encoding='utf-8') as f:
-        user_data = json.load(f)
+    user_data, user_file = load_user_data(user_no)
+    if user_data is None: return "User not found.", 404
 
     spec_conf_date_content = user_data.get('spec_conf_date', '')
     all_lines = [l.strip() for l in spec_conf_date_content.split('\n') if l.strip()]
@@ -451,8 +545,7 @@ def delete_date():
     all_lines = [l for l in all_lines if not l.startswith(date_to_delete + " ")]
     
     user_data['spec_conf_date'] = "\n".join(all_lines)
-    with open(user_file, 'w', encoding='utf-8') as f:
-        json.dump(user_data, f, ensure_ascii=False, indent=4)
+    save_user_data(user_file, user_data)
 
     return redirect(url_for('config_dates'))
 
@@ -463,21 +556,16 @@ def config_req():
     if user_no is False:
         return "Unauthorized: You can only submit your own orders.", 403
 
-    user_file = os.path.join(USERS_DIR, f"{user_no}.json")
-    if not os.path.exists(user_file):
+    user_data, user_file = load_user_data(user_no)
+    if user_data is None:
         return "User not found.", 404
 
     if request.method == 'POST':
         content = request.form.get('content')
-        with open(user_file, 'r', encoding='utf-8') as f:
-            user_data = json.load(f)
         user_data['req'] = content
-        with open(user_file, 'w', encoding='utf-8') as f:
-            json.dump(user_data, f, ensure_ascii=False, indent=4)
+        save_user_data(user_file, user_data)
         return redirect(url_for('config_req'))
 
-    with open(user_file, 'r', encoding='utf-8') as f:
-        user_data = json.load(f)
     content = user_data.get('req', '')
 
     return render_template('config_req.html', content=content)

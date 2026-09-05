@@ -89,6 +89,7 @@ def register(userno):
         "jsessionid": WECHAT_JSESSIONID,
         "req": REQ_FILE.read_text(encoding="utf-8") if REQ_FILE.exists() else "",
         "spec_conf_date": "",
+        "order_date": {},
         "email": email,
     }
 

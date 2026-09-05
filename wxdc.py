@@ -275,6 +275,18 @@ class AutoOrder:
         return True
 
 
+canteen_menu_lazy_fetch_cache = {}
+def get_canteen_menu(date, authinfo):
+    cache_key = date
+    if cache_key in canteen_menu_lazy_fetch_cache:
+        return canteen_menu_lazy_fetch_cache[cache_key]
+
+    canteen_menu = CanteenMenu(date, auth=authinfo)
+    canteen_menu.fetch_menu()
+    canteen_menu_lazy_fetch_cache[cache_key] = canteen_menu
+    return canteen_menu
+
+
 def run_one(user_file):
     with open(user_file, "r", encoding="utf-8") as f:
         user_data = json.load(f)
@@ -302,13 +314,23 @@ def run_one(user_file):
     auto_order.authinfo = authinfo
     auto_order.requirement = user_data.get("req", "")
     # Mon - Fri
-    for day in range(5):
-        canteen_menu = CanteenMenu((base_date + timedelta(days=day)).isoformat(), auth=authinfo)
+    for day, dayorder in user_data.get("order_date", {}):
+        day = int(day) - 1  # convert to 0-based index
+        if day < 0 or day > 13:
+            logging.warning(f"Invalid day in order_date: {day}. Skipping.")
+            continue
+
+        canteen_menu = get_canteen_menu((base_date + timedelta(days=day)).isoformat(), authinfo)
 
         data[str(day+1)] = {
             "date": (base_date + timedelta(days=day)).isoformat(),
-            "menu": canteen_menu.menu
+            "menu": {
+                "breakfastorders": canteen_menu.menu.get("breakfastorders", []) if "b" in dayorder else [],
+                "lunchorders": canteen_menu.menu.get("lunchorders", []) if "l" in dayorder else [],
+                "supperorders": canteen_menu.menu.get("supperorders", []) if "s" in dayorder else []
+            }
         }
+
     # # Friday: only breakfast and lunch
     # day = 4
     # canteen_menu = CanteenMenu((base_date + timedelta(days=day)).isoformat(), auth=authinfo)
