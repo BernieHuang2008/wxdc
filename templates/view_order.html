@@ -47,7 +47,7 @@
     <script>
         let orderData = {{ data | tojson }};
         const filename = "{{ filename }}";
-
+        const weekdayLabels = ["日", "一", "二", "三", "四", "五", "六"];
         const mealLabels = {
             "breakfastorders": "早餐",
             "lunchorders": "午餐",
@@ -86,7 +86,7 @@
 
                 // Date column
                 const dateTd = document.createElement('td');
-                dateTd.innerHTML = `<strong>Day ${dayKey} </strong><br><small>${dayData.date}</small>`;
+                dateTd.innerHTML = `<strong>${weekdayLabels[Number(dayKey) % 7]}</strong><br><small>${dayData.date}</small>`;
                 tr.appendChild(dateTd);
 
                 // Meals
