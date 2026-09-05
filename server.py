@@ -452,50 +452,23 @@ def api_config_order_date():
     if not isinstance(selected_days, dict):
         return jsonify({'success': False, 'message': 'order_date must be an object.'}), 400
 
+    formatted_order_date = {}
     start_key = 1 if week == 'current' else 8
-    end_key = start_key + 6
-    updated_week = {}
+    for day_offset in range(7):
+        day_key = str(start_key + day_offset)
+        meals = str(selected_days.get(day_key, ""))
 
-    for raw_day, meal_value in selected_days.items():
-        if not str(raw_day).isdigit():
-            return jsonify({'success': False, 'message': f'Invalid day key: {raw_day}'}), 400
-
-        day_index = int(raw_day)
-        if day_index < 1 or day_index > 7:
-            return jsonify({'success': False, 'message': f'Day must be between 1 and 7, got {raw_day}'}), 400
-
-        normalized = normalize_meal_string(meal_value)
-        if meal_value and not normalized:
-            return jsonify({'success': False, 'message': f'Invalid meal selection for day {raw_day}'}), 400
-
-        if normalized:
-            updated_week[str(start_key + day_index - 1)] = normalized
+        meals = "".join(meals & set("bls"))
+        if meals:
+            formatted_order_date[day_key] = meals
 
     user_data, user_file = load_user_data(user_no)
-    if user_data is None:
-        return jsonify({'success': False, 'message': 'User not found.'}), 404
-
-    existing_order_date = user_data.get('order_date', {})
-    if not isinstance(existing_order_date, dict):
-        existing_order_date = {}
-
-    merged_order_date = {
-        key: value
-        for key, value in existing_order_date.items()
-        if not (str(key).isdigit() and start_key <= int(key) <= end_key)
-    }
-    merged_order_date.update(updated_week)
-
-    ordered_items = sorted(
-        merged_order_date.items(),
-        key=lambda item: int(item[0]) if str(item[0]).isdigit() else 999,
-    )
-    user_data['order_date'] = {key: value for key, value in ordered_items}
+    user_data['order_date'] = formatted_order_date
     save_user_data(user_file, user_data)
 
     return jsonify({
         'success': True,
-        'message': '订餐配置已保存。',
+        'message': '订餐时间已保存。',
         'order_date': user_data['order_date'],
     })
 

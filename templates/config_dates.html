@@ -383,10 +383,9 @@
         const mealKeys = ["b", "l", "s"];
         const mealDisplay = { b: "早餐", l: "午餐", s: "晚餐" };
 
-        // weekState: { current: { 1: '', 2: '', ... }, next: { 1: '', 2: '', ... } }
-        const weekState = {
-            current: { 1: "", 2: "", 3: "", 4: "", 5: "", 6: "", 7: "" },
-            next: { 1: "", 2: "", 3: "", 4: "", 5: "", 6: "", 7: "" }
+        // weekData
+        const weekData = {
+            1: "", 2: "", 3: "", 4: "", 5: "", 6: "", 7: ""
         };
 
         let activeWeek = "current"; // 'current' | 'next'
@@ -406,25 +405,19 @@
         // ================================================================
         //  数据初始化
         // ================================================================
-        function hydrateWeekState() {
+        function apply_initial_week_settings() {
             // initialOrderDate 格式: { '1': 'bl', '2': 'bls', ... }  1-7 本周, 8-14 下周
             Object.entries(initialOrderDate || {}).forEach(([key, value]) => {
                 const dayKey = Number.parseInt(key, 10);
                 const mealValue = normalizeMealString(value);
                 if (!Number.isInteger(dayKey) || dayKey < 1 || dayKey > 14 || !mealValue) return;
                 if (dayKey <= 7) {
-                    weekState.current[dayKey] = mealValue;
+                    weekData[dayKey] = mealValue;
                 } else {
-                    weekState.next[dayKey - 7] = mealValue;
+                    weekData[dayKey - 7] = mealValue;
+                    switchWeek("next"); // 如果有下周数据，默认切换到下周
                 }
             });
-        }
-
-        // ================================================================
-        //  获取当前周的引用
-        // ================================================================
-        function getCurrentWeekState() {
-            return weekState[activeWeek];
         }
 
         // ================================================================
@@ -432,7 +425,6 @@
         // ================================================================
         function renderTable() {
             const tbody = document.getElementById("mealTableBody");
-            const weekData = getCurrentWeekState();
             tbody.innerHTML = "";
 
             for (let i = 1; i <= 7; i++) {
@@ -480,13 +472,17 @@
 
                 tbody.appendChild(tr);
             }
+
+            // 清空状态信息
+            const statusEl = document.getElementById("saveOrderDateStatus");
+            statusEl.textContent = "";
+            statusEl.className = "status-text";
         }
 
         // ================================================================
         //  切换餐食状态
         // ================================================================
         function toggleMeal(dayIndex, mealKey) {
-            const weekData = getCurrentWeekState();
             const current = weekData[dayIndex] || "";
             const set = new Set(current.split(""));
 
@@ -509,8 +505,10 @@
         // ================================================================
         function switchWeek(week) {
             if (week === activeWeek) return;
+
             activeWeek = week;
             renderTable();
+
             // 清空状态信息
             const statusEl = document.getElementById("saveOrderDateStatus");
             statusEl.textContent = "";
@@ -524,7 +522,6 @@
             const statusEl = document.getElementById("saveOrderDateStatus");
             const button = document.getElementById("saveOrderDateBtn");
 
-            const weekData = getCurrentWeekState();
             const payload = { week: activeWeek, order_date: {} };
 
             for (let i = 1; i <= 7; i++) {
@@ -578,7 +575,7 @@
         // ================================================================
         //  启动
         // ================================================================
-        hydrateWeekState();
+        apply_initial_week_settings();
         renderTable();
     </script>
 

@@ -314,7 +314,7 @@ def run_one(user_file):
     auto_order.authinfo = authinfo
     auto_order.requirement = user_data.get("req", "")
     # Mon - Fri
-    for day, dayorder in user_data.get("order_date", {}):
+    for day, dayorder in user_data.get("order_date", {}).items():
         day = int(day) - 1  # convert to 0-based index
         if day < 0 or day > 13:
             logging.warning(f"Invalid day in order_date: {day}. Skipping.")
