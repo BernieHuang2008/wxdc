@@ -1,13 +1,15 @@
 import re
+from collections import Counter
+from html import escape
 
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
 import os
 import json
-import requests
 from datetime import datetime, timedelta
 import register
-from wxdc import AuthInfo
-from wxdc_bind import UnBindWeChat
+import menu_store
+import order_service
+import wxapi
 from config_utils import APP_PORT, APP_SECRET_KEY, PENDING_ORDERS_DIR, REQ_FILE, SPEC_CONF_DATE_FILE, TOKEN_FILE, USERS_DIR
 
 app = Flask(__name__)
@@ -81,36 +83,43 @@ def save_user_data(user_file, user_data):
 
 
 def format_orderdata_from_pending_order(data):
-    formatted_items = []
-    # Sort keys to ensure ordering
-    # Keys like "1", "2" should be sorted numerically
-    sorted_keys = sorted(data.keys(), key=lambda x: int(x) if x.isdigit() else 999)
-    
-    for key in sorted_keys:
-        day_info = data[key]
-        date_str = day_info.get("date")
-        auto_orders = day_info.get("auto_order", {})
-        
-        # Meal type mapping: Breakfast=0, Lunch=1, Supper=2
-        # Based on example: 0 is breakfast. 
-        # Inferred: 1=Lunch, 2=Supper
-        meal_types = {
-            "breakfastorders": 0,
-            "lunchorders": 1,
-            "supperorders": 2
-        }
-        
-        for meal_key, meal_code in meal_types.items():
-            orders = auto_orders.get(meal_key, [])
-            for item in orders:
-                if isinstance(item, dict) and 'id' in item:
-                    item_id = item['id']
-                    # Format: date~type~id~quantity~'
-                    # The example showed an ending single quote
-                    formatted_str = f"{date_str}~{meal_code}~{item_id}~1~'"
-                    formatted_items.append(formatted_str)
-                    
-    return ",".join(formatted_items)
+    return order_service.format_orderdata_from_pending_order(data)
+
+
+def save_pending_order_file(filepath, data):
+    """Persist a pending order without embedding shared menus."""
+    menu_store.strip_day_menus(data)
+    with open(filepath, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=4)
+    menu_store.inject_day_menus(data)
+
+
+def annotate_failed_items(data, failed_items):
+    """Store known submission failures so the refresh view can mark them red."""
+    grouped = {}
+    for item in failed_items or []:
+        if not isinstance(item, dict):
+            continue
+        date_str = item.get("date")
+        if not date_str:
+            continue
+        grouped.setdefault(date_str, []).append(item)
+
+    for day_info in data.values():
+        if not isinstance(day_info, dict):
+            continue
+        day_info.pop("failed_items", None)
+        items = grouped.get(day_info.get("date"))
+        if items:
+            day_info["failed_items"] = [
+                {
+                    "meal": item.get("meal"),
+                    "meal_label": item.get("meal_label"),
+                    "name": item.get("name"),
+                    "reason": item.get("reason"),
+                }
+                for item in items
+            ]
 
 def reconcile_auto_order(data):
     """Repair auto_order ids that no longer match the dish name in the menu.
@@ -161,92 +170,12 @@ def reconcile_auto_order(data):
     return changed
 
 
-def place_order(filename, order_data):
-    # order_data format example: 2026-02-02~0~ID~1~',2026-02-02~0~ID~1~'
-    user_no = check_perm(filename)
-    if user_no is False:  # Ensure the user is authorized to submit this order
-        return "Unauthorized: You can only submit your own orders.", 403
-
-    try:
-        user_file = os.path.join(USERS_DIR, f"{user_no}.json")
-        if not os.path.exists(user_file):
-            return False, "User configuration not found"
-            
-        with open(user_file, "r", encoding="utf-8") as f:
-            user_data = json.load(f)
-        
-        try:
-            from wxdc_bind import BindWeChat
-            BindWeChat(userno=user_data.get("UserNO"), pwd=user_data.get("pwd"))
-        except Exception as e:
-            print(f"Failed to bind WeChat: {e}")
-
-        authinfo = AuthInfo()
-        authinfo.user_no = user_no
-        authinfo.auth_by_openid(user_data.get("open_id"))
-        authinfo.jsessionid = user_data.get("jsessionid")
-        if "center_id" in user_data:
-            authinfo.center_id = user_data.get("center_id")
-        
-        if not authinfo.token:
-             print("Failed to get token during place_order")
-             return False, "Authentication failed"
-
-        url = "http://wxdc.szsy.cn/api/orderdata/setOrder"
-        
-        # URL encode the single quotes as %27
-        encoded_data = order_data.replace("'", "%27")
-        
-        params = {
-            'data': encoded_data,
-            'userno': authinfo.user_no
-        }
-        
-        headers = {
-            'Host': 'wxdc.szsy.cn',
-            'Content-Length': '0',
-            'X-Access-Token': authinfo.token,
-            'CENTER_ID': authinfo.center_id,
-            'User-Agent': 'Mozilla/5.0 (Linux; Android 12; LIO-AN00 Build/HUAWEILIO-AN00; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/142.0.7444.173 Mobile Safari/537.36 XWEB/1420153 MMWEBSDK/20251101 MMWEBID/2946 MicroMessenger/8.0.67.3000(0x28004351) WeChat/arm64 Weixin NetType/WIFI Language/zh_CN ABI/arm64',
-            'Accept': 'application/json, text/plain, */*',
-            'Origin': 'http://wxdc.szsy.cn',
-            'X-Requested-With': 'com.tencent.mm',
-            'Referer': 'http://wxdc.szsy.cn/order/shoppingCart',
-            'Accept-Encoding': 'gzip, deflate',
-            'Accept-Language': 'zh-CN,zh;q=0.9,en-CN;q=0.8,en-US;q=0.7,en;q=0.6',
-            'Cookie': f'JSESSIONID={authinfo.jsessionid}'
-        }
-
-        response = requests.post(url, params=params, headers=headers)
-        UnBindWeChat(
-            userno=authinfo.user_no, 
-            jsessionid=authinfo.jsessionid, 
-            x_access_token=authinfo.token, 
-            center_id=authinfo.center_id
-        )
-        print(f"Order submission response: {response.status_code}")
-        print(f"Response body: {response.text}")
-        
-        if response.status_code == 200:
-            res_json = response.json()
-            if res_json.get('success', False) or res_json.get('code') == 200 or str(res_json.get('code')) == '200':
-                 return True, "Order submitted successfully to remote server."
-            else:
-                 return False, f"Server returned error: {response.text}"
-        else:
-            return False, f"HTTP Error: {response.status_code}"
-            
-    except Exception as e:
-        print(f"Error placing order: {e}")
-        return False, str(e)
-
-
 # 删除不再需要的内存字典和内部接口
 
 @app.route('/latest-orders')
 def latest_orders():
     user_no = check_perm()
-    if user_no is False:
+    if not user_no:
         return "未登录，请点击微信中的激活链接以验证身份。", 403
     
     ensure_pending_orders_dir()
@@ -306,7 +235,7 @@ def set_user_no():
 @app.route('/pending_orders')
 def list_pending_orders():
     user_no = check_perm()
-    if user_no is False:
+    if not user_no:
         return "Unauthorized: Please set your user_no first.", 403
 
     ensure_pending_orders_dir()
@@ -325,7 +254,7 @@ def list_pending_orders():
 
 @app.route('/pending_orders/<filename>', methods=['GET'])
 def view_order(filename):
-    if check_perm(filename) is False:
+    if not check_perm(filename):
         return "Unauthorized: You can only view your own orders.", 403
 
     filepath = os.path.join(PENDING_ORDERS_DIR, filename)
@@ -338,15 +267,16 @@ def view_order(filename):
         except json.JSONDecodeError:
             return "Error decoding JSON file.", 500
 
+    menu_store.inject_day_menus(data)
     if reconcile_auto_order(data):
-        with open(filepath, 'w', encoding='utf-8') as f:
-            json.dump(data, f, ensure_ascii=False, indent=4)
+        save_pending_order_file(filepath, data)
 
     return render_template('view_order.html', filename=filename, data=data)
 
+
 @app.route('/pending_orders/<filename>/update', methods=['POST'])
 def update_order(filename):
-    if check_perm(filename) is False:
+    if not check_perm(filename):
         return "Unauthorized: You can only update your own orders.", 403
 
     filepath = os.path.join(PENDING_ORDERS_DIR, filename)
@@ -355,15 +285,111 @@ def update_order(filename):
         
     try:
         updated_data = request.json
+        if not isinstance(updated_data, dict):
+            return jsonify({'success': False, 'message': 'Invalid order data'}), 400
+        menu_store.strip_day_menus(updated_data)
+        for day_info in updated_data.values():
+            if isinstance(day_info, dict):
+                day_info.pop('failed_items', None)
         with open(filepath, 'w', encoding='utf-8') as f:
             json.dump(updated_data, f, ensure_ascii=False, indent=4)
         return jsonify({'success': True, 'message': 'Order updated successfully'})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
 
+
+@app.route('/pending_orders/<filename>/status', methods=['GET'])
+def pending_order_status(filename):
+    """Query the ordering system and return per-dish status for a pending order."""
+    user_no = check_perm(filename)
+    if not user_no:
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+
+    filepath = os.path.join(PENDING_ORDERS_DIR, filename)
+    if not os.path.exists(filepath):
+        return jsonify({'success': False, 'message': 'File not found'}), 404
+
+    try:
+        with open(filepath, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError) as exc:
+        return jsonify({'success': False, 'message': str(exc)}), 500
+
+    dates = [
+        day_info.get('date')
+        for day_info in data.values()
+        if isinstance(day_info, dict) and day_info.get('date')
+    ]
+    if not dates:
+        return jsonify({'success': True, 'status': {}})
+
+    user_data, _ = load_user_data(user_no)
+    if user_data is None:
+        return jsonify({'success': False, 'message': 'User configuration not found'}), 404
+
+    try:
+        with wxapi.wechat_session(user_data) as authinfo:
+            starttime, endtime = wxapi.date_range_for(dates)
+            records = wxapi.get_order_details(authinfo, starttime, endtime)
+    except Exception as exc:
+        return jsonify({'success': False, 'message': str(exc)}), 500
+
+    active_counts = Counter()
+    cancelled_counts = Counter()
+    stored_failed = Counter()
+    for day_info in data.values():
+        if not isinstance(day_info, dict):
+            continue
+        date_str = day_info.get('date')
+        for item in day_info.get('failed_items') or []:
+            if isinstance(item, dict):
+                stored_failed[(date_str, item.get('meal'), item.get('name'))] += 1
+
+    for record in records:
+        meal_key = wxapi.detail_meal_key(record)
+        date_str = record.get('ORDERDATE')
+        name = record.get('DISHESNAME')
+        if not meal_key or not date_str or not name:
+            continue
+        key = (date_str, meal_key, name)
+        if wxapi.is_active_detail(record):
+            active_counts[key] += 1
+        else:
+            cancelled_counts[key] += 1
+
+    statuses = {}
+    for day_key, day_info in data.items():
+        if not isinstance(day_info, dict):
+            continue
+        date_str = day_info.get('date')
+        auto_order = day_info.get('auto_order') or {}
+        day_status = {}
+        for meal_key, _meal_code in wxapi.MEAL_TYPES:
+            item_statuses = []
+            for item in auto_order.get(meal_key, []) or []:
+                name = item.get('name') if isinstance(item, dict) else None
+                key = (date_str, meal_key, name)
+                if active_counts[key] > 0:
+                    active_counts[key] -= 1
+                    item_statuses.append('ordered')
+                elif stored_failed[key] > 0:
+                    stored_failed[key] -= 1
+                    item_statuses.append('failed')
+                elif cancelled_counts[key] > 0:
+                    cancelled_counts[key] -= 1
+                    item_statuses.append('failed')
+                else:
+                    item_statuses.append('pending')
+            day_status[meal_key] = item_statuses
+        statuses[day_key] = day_status
+
+    return jsonify({'success': True, 'status': statuses})
+
+
 @app.route('/submit_order/<filename>', methods=['POST'])
 def submit_order(filename):
-    if check_perm(filename) is False:
+    user_no = check_perm(filename)
+    if not user_no:
         return "Unauthorized: You can only submit your own orders.", 403
 
     filepath = os.path.join(PENDING_ORDERS_DIR, filename)
@@ -374,16 +400,19 @@ def submit_order(filename):
         with open(filepath, 'r', encoding='utf-8') as f:
             order_data_json = json.load(f)
 
+        menu_store.inject_day_menus(order_data_json)
         if reconcile_auto_order(order_data_json):
-            with open(filepath, 'w', encoding='utf-8') as f:
-                json.dump(order_data_json, f, ensure_ascii=False, indent=4)
+            save_pending_order_file(filepath, order_data_json)
 
-        formatted_data = format_orderdata_from_pending_order(order_data_json)
-        print(f"Formatted data for submission: {formatted_data}")
+        user_data, _ = load_user_data(user_no)
+        if user_data is None:
+            return jsonify({'success': False, 'message': 'User configuration not found'}), 404
 
-        success, message = place_order(filename, formatted_data)
+        success, message, failed_items = order_service.submit_pending_order(
+            user_data, order_data_json
+        )
 
-        if success:
+        if success and not failed_items:
              # Remove the pending order file on success
              try:
                  os.remove(filepath)
@@ -391,16 +420,25 @@ def submit_order(filename):
              except Exception as del_err:
                  message += f" (But failed to delete file: {del_err})"
                  
-             return jsonify({'success': True, 'message': message})
+             return jsonify({'success': True, 'message': message, 'failed_items': []})
         else:
-             return jsonify({'success': False, 'message': message}), 500
+             if failed_items:
+                 annotate_failed_items(order_data_json, failed_items)
+                 save_pending_order_file(filepath, order_data_json)
+             return jsonify({
+                 'success': False,
+                 'message': message,
+                 'failed_items': failed_items,
+             }), 500
              
     except Exception as e:
         return jsonify({'success': False, 'message': f"Unexpected error: {str(e)}"}), 500
 
+
 @app.route('/submit_order_from_email/<filename>', methods=['GET'])
 def submit_order_from_email(filename):
-    if check_perm(filename) is False:
+    user_no = check_perm(filename)
+    if not user_no:
         return "Unauthorized: You can only submit your own orders.", 403
 
     filepath = os.path.join(PENDING_ORDERS_DIR, filename)
@@ -411,16 +449,19 @@ def submit_order_from_email(filename):
         with open(filepath, 'r', encoding='utf-8') as f:
              order_data_json = json.load(f)
 
+        menu_store.inject_day_menus(order_data_json)
         if reconcile_auto_order(order_data_json):
-            with open(filepath, 'w', encoding='utf-8') as f:
-                json.dump(order_data_json, f, ensure_ascii=False, indent=4)
+            save_pending_order_file(filepath, order_data_json)
 
-        formatted_data = format_orderdata_from_pending_order(order_data_json)
-        print(f"Formatted data for email submission: {formatted_data}")
+        user_data, _ = load_user_data(user_no)
+        if user_data is None:
+            return "User configuration not found.", 404
 
-        success, message = place_order(filename, formatted_data)
+        success, message, failed_items = order_service.submit_pending_order(
+            user_data, order_data_json
+        )
 
-        if success:
+        if success and not failed_items:
             # Remove the pending order file on success
             try:
                 os.remove(filepath)
@@ -431,19 +472,33 @@ def submit_order_from_email(filename):
             title = "Order Submitted Successfully!"
             msg_body = "We have successfully processed your order request. The pending order file has been removed."
         else:
+            if failed_items:
+                annotate_failed_items(order_data_json, failed_items)
+                save_pending_order_file(filepath, order_data_json)
             color = "red"
             title = "Order Submission Failed"
             msg_body = f"There was an error processing your order: {message}"
+
+        failed_html = ""
+        if failed_items:
+            rows = "".join(
+                f"<li>{escape(str(item.get('date', '')))} "
+                f"{escape(str(item.get('meal_label', '')))} - "
+                f"{escape(str(item.get('name', '')))}</li>"
+                for item in failed_items
+            )
+            failed_html = f"<p>以下菜品未成功提交：</p><ul>{rows}</ul>"
 
         return f"""
         <html>
             <head><title>Order Status</title></head>
             <body style="text-align: center; padding-top: 50px; font-family: sans-serif;">
                 <h1 style="color: {color};">{title}</h1>
-                <p>{msg_body}</p>
+                <p>{escape(msg_body)}</p>
+                {failed_html}
                 <p><a href="/pending_orders">View all pending orders</a></p>
                 <br>
-                <div style="color: #ccc; font-size: small;">Debug info: {filename}</div>
+                <div style="color: #ccc; font-size: small;">Debug info: {escape(filename)}</div>
             </body>
         </html>
         """
@@ -451,13 +506,11 @@ def submit_order_from_email(filename):
         return f"Error: {str(e)}", 500
 
 
-
-
 @app.route('/config/dates', methods=['GET'])
 def config_dates():
     configs = []
     user_no = check_perm()
-    if user_no is False:
+    if not user_no:
         return "Unauthorized: You can only submit your own orders.", 403
 
     user_data, _ = load_user_data(user_no)
@@ -489,19 +542,23 @@ def config_dates():
     # Sort by date
     configs.sort(key=lambda x: x['date'])
     order_date = {}
-    if user_data is not None and isinstance(user_data.get('order_date', {}), dict):
-        order_date = user_data.get('order_date', {})
+    auto_submit = False
+    if user_data is not None:
+        if isinstance(user_data.get('order_date', {}), dict):
+            order_date = user_data.get('order_date', {})
+        auto_submit = bool(user_data.get('auto_submit', False))
     return render_template(
         'config_dates.html',
         configs=configs,
-        order_date=order_date
+        order_date=order_date,
+        auto_submit=auto_submit
     )
 
 
 @app.route('/api/config/order_date', methods=['POST'])
 def api_config_order_date():
     user_no = check_perm()
-    if user_no is False:
+    if not user_no:
         return jsonify({'success': False, 'message': 'Unauthorized'}), 403
 
     payload = request.get_json(silent=True) or {}
@@ -513,18 +570,25 @@ def api_config_order_date():
     if not isinstance(selected_days, dict):
         return jsonify({'success': False, 'message': 'order_date must be an object.'}), 400
 
-    formatted_order_date = {}
+    user_data, user_file = load_user_data(user_no)
+    if user_data is None:
+        return jsonify({'success': False, 'message': 'User not found'}), 404
+
+    existing = user_data.get('order_date')
+    if not isinstance(existing, dict):
+        existing = {}
+
     start_key = 1 if week == 'current' else 8
     for day_offset in range(7):
         day_key = str(start_key + day_offset)
         meals = str(selected_days.get(str(day_offset+1), ""))
-
-        meals = "".join(set(meals) & set("bls"))
+        meals = "".join(m for m in "bls" if m in meals)
         if meals:
-            formatted_order_date[day_key] = meals
+            existing[day_key] = meals
+        else:
+            existing.pop(day_key, None)
 
-    user_data, user_file = load_user_data(user_no)
-    user_data['order_date'] = formatted_order_date
+    user_data['order_date'] = existing
     save_user_data(user_file, user_data)
 
     return jsonify({
@@ -533,10 +597,32 @@ def api_config_order_date():
         'order_date': user_data['order_date'],
     })
 
+
+@app.route('/api/config/auto_submit', methods=['POST'])
+def api_config_auto_submit():
+    user_no = check_perm()
+    if not user_no:
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+
+    payload = request.get_json(silent=True) or {}
+    enabled = bool(payload.get('enabled', False))
+
+    user_data, user_file = load_user_data(user_no)
+    if user_data is None:
+        return jsonify({'success': False, 'message': 'User not found'}), 404
+
+    user_data['auto_submit'] = enabled
+    save_user_data(user_file, user_data)
+    return jsonify({
+        'success': True,
+        'message': '自动提交已' + ('开启。' if enabled else '关闭。'),
+        'auto_submit': enabled,
+    })
+
 @app.route('/config/dates/add', methods=['POST'])
 def add_date():
     user_no = check_perm()
-    if user_no is False: return "Unauthorized: You can only submit your own orders.", 403
+    if not user_no: return "Unauthorized: You can only submit your own orders.", 403
 
     date_str = request.form.get('date')
     meals = request.form.getlist('meals') # breakfast, lunch, supper
@@ -566,7 +652,7 @@ def add_date():
 @app.route('/config/dates/delete', methods=['POST'])
 def delete_date():
     user_no = check_perm()
-    if user_no is False: return "Unauthorized: You can only submit your own orders.", 403
+    if not user_no: return "Unauthorized: You can only submit your own orders.", 403
 
     date_to_delete = request.form.get('date')
 
@@ -587,7 +673,7 @@ def delete_date():
 @app.route('/config/req', methods=['GET', 'POST'])
 def config_req():
     user_no = check_perm()
-    if user_no is False:
+    if not user_no:
         return "Unauthorized: You can only submit your own orders.", 403
 
     user_data, user_file = load_user_data(user_no)
@@ -603,6 +689,177 @@ def config_req():
     content = user_data.get('req', '')
 
     return render_template('config_req.html', content=content)
+
+@app.route('/orders/editor')
+def orders_editor():
+    return render_template('order_editor.html')
+
+
+def _parse_iso_date(value):
+    try:
+        return datetime.strptime(value, "%Y-%m-%d").date()
+    except (TypeError, ValueError):
+        return None
+
+
+@app.route('/api/orders/overview', methods=['GET'])
+def api_orders_overview():
+    user_no = check_perm()
+    if not user_no:
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+
+    start_str = request.args.get('starttime')
+    end_str = request.args.get('endtime')
+    if not start_str or not end_str:
+        today = datetime.now().date()
+        start_str = today.isoformat()
+        end_str = (today + timedelta(days=6)).isoformat()
+
+    start_date = _parse_iso_date(start_str)
+    end_date = _parse_iso_date(end_str)
+    if start_date is None or end_date is None:
+        return jsonify({'success': False, 'message': '日期格式应为 YYYY-MM-DD'}), 400
+    if end_date < start_date:
+        start_date, end_date = end_date, start_date
+        start_str, end_str = end_str, start_str
+    if (end_date - start_date).days > 30:
+        return jsonify({'success': False, 'message': '查询范围不能超过 31 天'}), 400
+
+    user_data, _ = load_user_data(user_no)
+    if user_data is None:
+        return jsonify({'success': False, 'message': 'User not found'}), 404
+
+    try:
+        with wxapi.wechat_session(user_data) as authinfo:
+            week_book = wxapi.get_week_book_data(authinfo, start_str, end_str)
+            records = wxapi.get_order_details(authinfo, start_str, end_str)
+    except Exception as exc:
+        return jsonify({'success': False, 'message': str(exc)}), 500
+
+    detail_prices = {}
+    for record in records:
+        if not wxapi.is_active_detail(record):
+            continue
+        meal_key = wxapi.detail_meal_key(record)
+        date_str = record.get('ORDERDATE')
+        name = record.get('DISHESNAME')
+        if not meal_key or not date_str or not name:
+            continue
+        try:
+            detail_prices[(date_str, meal_key, name)] = float(record.get('ORDERAMOUNT') or 0)
+        except (TypeError, ValueError):
+            detail_prices[(date_str, meal_key, name)] = 0
+
+    week_by_date = {
+        item.get('orderdate'): item
+        for item in week_book
+        if isinstance(item, dict) and item.get('orderdate')
+    }
+
+    days = {}
+    current = start_date
+    index = 1
+    meal_fields = (
+        ('breakfastorders', 'breakfast'),
+        ('lunchorders', 'lunch'),
+        ('supperorders', 'supper'),
+    )
+    while current <= end_date:
+        date_str = current.isoformat()
+        week_item = week_by_date.get(date_str) or {}
+        auto_order = {}
+        for meal_key, field in meal_fields:
+            items = []
+            for cell in wxapi.parse_week_book_cell(week_item.get(field, '')):
+                price = detail_prices.get((date_str, meal_key, cell['name']), 0)
+                for _ in range(max(1, int(cell.get('qty') or 1))):
+                    items.append({
+                        'id': None,
+                        'name': cell['name'],
+                        'price': price,
+                        'order_status': cell.get('status', '0'),
+                    })
+            auto_order[meal_key] = items
+
+        days[str(index)] = {
+            'date': date_str,
+            'week': week_item.get('week', ''),
+            'auto_order': auto_order,
+        }
+        index += 1
+        current += timedelta(days=1)
+
+    return jsonify({
+        'success': True,
+        'starttime': start_str,
+        'endtime': end_str,
+        'days': days,
+    })
+
+
+@app.route('/api/orders/day_menu', methods=['GET'])
+def api_orders_day_menu():
+    user_no = check_perm()
+    if not user_no:
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+
+    date_str = request.args.get('date')
+    if _parse_iso_date(date_str) is None:
+        return jsonify({'success': False, 'message': '日期格式应为 YYYY-MM-DD'}), 400
+
+    user_data, _ = load_user_data(user_no)
+    if user_data is None:
+        return jsonify({'success': False, 'message': 'User not found'}), 404
+
+    try:
+        with wxapi.wechat_session(user_data) as authinfo:
+            menu = wxapi.get_order_food_list(authinfo, date_str)
+    except Exception as exc:
+        return jsonify({'success': False, 'message': str(exc)}), 500
+
+    filtered_menu = {}
+    for meal_key, _meal_code in wxapi.MEAL_TYPES:
+        filtered_menu[meal_key] = [
+            item for item in (menu.get(meal_key) or [])
+            if isinstance(item, dict) and not item.get('ydflag')
+        ]
+
+    return jsonify({'success': True, 'date': date_str, 'menu': filtered_menu})
+
+
+@app.route('/api/orders/apply', methods=['POST'])
+def api_orders_apply():
+    user_no = check_perm()
+    if not user_no:
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+
+    payload = request.get_json(silent=True) or {}
+    days = payload.get('days')
+    if isinstance(days, dict):
+        days = list(days.values())
+    if not isinstance(days, list):
+        return jsonify({'success': False, 'message': 'days 必须是数组'}), 400
+
+    normalized_days = []
+    for day in days:
+        if not isinstance(day, dict) or _parse_iso_date(day.get('date')) is None:
+            continue
+        entry = {'date': day['date']}
+        for meal_key, _meal_code in wxapi.MEAL_TYPES:
+            items = day.get(meal_key) or []
+            entry[meal_key] = [item for item in items if isinstance(item, dict)]
+        normalized_days.append(entry)
+
+    if not normalized_days:
+        return jsonify({'success': False, 'message': '没有有效的日期数据'}), 400
+
+    user_data, _ = load_user_data(user_no)
+    if user_data is None:
+        return jsonify({'success': False, 'message': 'User not found'}), 404
+
+    result = order_service.apply_order_changes(user_data, normalized_days)
+    return jsonify(result), (200 if result.get('success') else 500)
+
 
 @app.route('/register')
 def register_page():

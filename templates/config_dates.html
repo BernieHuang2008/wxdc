@@ -290,6 +290,18 @@
                 </table>
             </div>
 
+            <!-- 自动提交开关 -->
+            <div class="border rounded-3 bg-light p-3 mt-3">
+                <div class="form-check form-switch mb-1">
+                    <input class="form-check-input" type="checkbox" role="switch" id="autoSubmitCheckbox" {% if auto_submit %}checked{% endif %}>
+                    <label class="form-check-label fw-semibold" for="autoSubmitCheckbox">是否自动提交</label>
+                </div>
+                <div class="muted-hint">
+                    开启后，wxdc.py 生成订餐结果后会自动登录账号、提交订单并确认，然后退出账号。默认关闭。
+                </div>
+                <div class="status-text mt-2" id="autoSubmitStatus"></div>
+            </div>
+
             <!-- 保存区域 -->
             <div class="save-area">
                 <div class="status-text" id="saveOrderDateStatus"></div>
@@ -383,9 +395,10 @@
         const mealKeys = ["b", "l", "s"];
         const mealDisplay = { b: "早餐", l: "午餐", s: "晚餐" };
 
-        // weekData
+        // 本周与下周分别保存，避免互相覆盖
         const weekData = {
-            1: "", 2: "", 3: "", 4: "", 5: "", 6: "", 7: ""
+            current: { 1: "", 2: "", 3: "", 4: "", 5: "", 6: "", 7: "" },
+            next: { 1: "", 2: "", 3: "", 4: "", 5: "", 6: "", 7: "" }
         };
 
         let activeWeek = "current"; // 'current' | 'next'
@@ -412,12 +425,15 @@
                 const mealValue = normalizeMealString(value);
                 if (!Number.isInteger(dayKey) || dayKey < 1 || dayKey > 14 || !mealValue) return;
                 if (dayKey <= 7) {
-                    weekData[dayKey] = mealValue;
+                    weekData.current[dayKey] = mealValue;
                 } else {
-                    weekData[dayKey - 7] = mealValue;
-                    switchWeek("next"); // 如果有下周数据，默认切换到下周
+                    weekData.next[dayKey - 7] = mealValue;
                 }
             });
+
+            const hasNext = Object.values(weekData.next).some((meals) => meals);
+            activeWeek = hasNext ? "next" : "current";
+            document.getElementById(activeWeek === "current" ? "weekCurrent" : "weekNext").checked = true;
         }
 
         // ================================================================
@@ -429,7 +445,7 @@
 
             for (let i = 1; i <= 7; i++) {
                 const tr = document.createElement("tr");
-                const meals = weekData[i] || ""; // 如 "bl" 或 "bls"
+                const meals = weekData[activeWeek][i] || ""; // 如 "bl" 或 "bls"
 
                 // ---- 行头 ----
                 const tdLabel = document.createElement("td");
@@ -483,7 +499,7 @@
         //  切换餐食状态
         // ================================================================
         function toggleMeal(dayIndex, mealKey) {
-            const current = weekData[dayIndex] || "";
+            const current = weekData[activeWeek][dayIndex] || "";
             const set = new Set(current.split(""));
 
             if (set.has(mealKey)) {
@@ -494,7 +510,7 @@
 
             // 按顺序拼接
             const newValue = mealKeys.filter((m) => set.has(m)).join("");
-            weekData[dayIndex] = newValue;
+            weekData[activeWeek][dayIndex] = newValue;
 
             // 重新渲染表格（只更新UI，不重新创建DOM更高效，但为了简单清晰，全量刷新）
             renderTable();
@@ -507,8 +523,8 @@
             if (week === activeWeek) return;
             
             activeWeek = week;
+            document.getElementById(week === "current" ? "weekCurrent" : "weekNext").checked = true;
             renderTable();
-            document.getElementById("weekNext").checked = true;
 
             // 清空状态信息
             const statusEl = document.getElementById("saveOrderDateStatus");
@@ -526,7 +542,7 @@
             const payload = { week: activeWeek, order_date: {} };
 
             for (let i = 1; i <= 7; i++) {
-                const meals = weekData[i] || "";
+                const meals = weekData[activeWeek][i] || "";
                 if (meals) {
                     payload.order_date[String(i)] = meals;
                 }
@@ -572,6 +588,38 @@
         });
 
         document.getElementById("saveOrderDateBtn").addEventListener("click", saveOrderDate);
+
+        // ================================================================
+        //  自动提交开关
+        // ================================================================
+        const autoSubmitCheckbox = document.getElementById("autoSubmitCheckbox");
+        const autoSubmitStatus = document.getElementById("autoSubmitStatus");
+
+        autoSubmitCheckbox.addEventListener("change", async () => {
+            const enabled = autoSubmitCheckbox.checked;
+            autoSubmitCheckbox.disabled = true;
+            autoSubmitStatus.textContent = "保存中...";
+            autoSubmitStatus.className = "status-text mt-2";
+            try {
+                const response = await fetch("/api/config/auto_submit", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ enabled: enabled })
+                });
+                const result = await response.json();
+                if (!response.ok || !result.success) {
+                    throw new Error(result.message || "保存失败");
+                }
+                autoSubmitStatus.textContent = result.message || "已保存";
+                autoSubmitStatus.className = "status-text mt-2 success";
+            } catch (error) {
+                autoSubmitCheckbox.checked = !enabled;
+                autoSubmitStatus.textContent = error.message || "保存失败";
+                autoSubmitStatus.className = "status-text mt-2 error";
+            } finally {
+                autoSubmitCheckbox.disabled = false;
+            }
+        });
 
         // ================================================================
         //  启动

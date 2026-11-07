@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>每日菜谱 / 订单修改</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .meal-section {
+            margin-bottom: 20px;
+            border: 1px solid #eee;
+            padding: 15px;
+            border-radius: 5px;
+        }
+
+        .preview-table td {
+            cursor: pointer;
+        }
+
+        .food-card-selected {
+            border-color: #0d6efd;
+            box-shadow: 0 0 0 0.15rem rgba(13, 110, 253, 0.15);
+        }
+    </style>
+</head>
+
+<body class="container mt-4 mb-5">
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="/">首页</a></li>
+            <li class="breadcrumb-item active" aria-current="page">每日菜谱 / 订单修改</li>
+        </ol>
+    </nav>
+
+    <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
+        <div>
+            <h1 class="h3 mb-1">每日菜谱 / 订单修改</h1>
+            <p class="text-muted mb-0">
+                从订餐系统读取指定时间内已订的菜品。点击表格单元格查看完整菜单并修改；
+                提交后后端会比对系统记录，先退菜再定菜。
+            </p>
+        </div>
+        <div class="text-end">
+            <a href="/config/req" class="btn btn-outline-secondary btn-sm">修改订餐规则</a>
+            <a href="/config/dates" class="btn btn-outline-secondary btn-sm">订餐日期配置</a>
+        </div>
+    </div>
+
+    <div class="card mt-3">
+        <div class="card-body">
+            <div class="row g-2 align-items-end">
+                <div class="col-auto">
+                    <label for="starttime" class="form-label mb-1">开始日期</label>
+                    <input type="date" class="form-control" id="starttime">
+                </div>
+                <div class="col-auto">
+                    <label for="endtime" class="form-label mb-1">结束日期</label>
+                    <input type="date" class="form-control" id="endtime">
+                </div>
+                <div class="col-auto">
+                    <button type="button" class="btn btn-primary" id="loadBtn">查询 / 刷新</button>
+                </div>
+            </div>
+            <div class="form-text mt-2">查询范围最多 31 天。默认查询今天起一周。</div>
+        </div>
+    </div>
+
+    <div id="status-msg" class="alert d-none mt-3"></div>
+
+    <div id="checksheet-container" class="mt-4"></div>
+    <div id="editor-container" class="mt-4"></div>
+
+    <div class="d-flex justify-content-end mt-4">
+        <button type="button" class="btn btn-success" id="submitChangesBtn" disabled>提交修改到订餐系统</button>
+    </div>
+
+    <div id="apply-result" class="mt-3"></div>
+
+    <script>
+        let daysData = {};
+        let menus = {};
+        let selected = null;
+
+        const weekdayLabels = ["日", "一", "二", "三", "四", "五", "六"];
+        const mealLabels = {
+            "breakfastorders": "早餐",
+            "lunchorders": "午餐",
+            "supperorders": "晚餐"
+        };
+        const mealKeys = ["breakfastorders", "lunchorders", "supperorders"];
+
+        function pad(num) {
+            return String(num).padStart(2, "0");
+        }
+
+        function isoDate(date) {
+            return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+        }
+
+        function setDefaultRange() {
+            const today = new Date();
+            const end = new Date(today);
+            end.setDate(end.getDate() + 6);
+            document.getElementById("starttime").value = isoDate(today);
+            document.getElementById("endtime").value = isoDate(end);
+        }
+
+        function showStatus(message, type) {
+            const el = document.getElementById("status-msg");
+            el.classList.remove("d-none", "alert-success", "alert-danger", "alert-info");
+            el.classList.add(`alert-${type || "info"}`);
+            el.innerText = message;
+        }
+
+        function currentItems(dayKey, mealType) {
+            const day = daysData[dayKey];
+            if (!day.auto_order[mealType]) {
+                day.auto_order[mealType] = [];
+            }
+            return day.auto_order[mealType];
+        }
+
+        function countFood(dayKey, mealType, food) {
+            return currentItems(dayKey, mealType).filter(item => {
+                if (item.id && food.id) {
+                    return String(item.id) === String(food.id);
+                }
+                return item.name === food.name;
+            }).length;
+        }
+
+        function renderChecksheet() {
+            const container = document.getElementById("checksheet-container");
+            container.innerHTML = "";
+
+            if (Object.keys(daysData).length === 0) {
+                return;
+            }
+
+            const title = document.createElement("h3");
+            title.className = "h5";
+            title.textContent = "订单预览表";
+            container.appendChild(title);
+
+            const hint = document.createElement("p");
+            hint.className = "text-muted";
+            hint.innerHTML = "<small>绿色为订餐系统中已存在的菜品。点击单元格可查看完整菜单并修改当天菜品。</small>";
+            container.appendChild(hint);
+
+            const table = document.createElement("table");
+            table.className = "table table-bordered table-striped text-center align-middle preview-table";
+
+            const thead = document.createElement("thead");
+            thead.innerHTML = `
+                <tr>
+                    <th>日期</th>
+                    <th>早餐</th>
+                    <th>午餐</th>
+                    <th>晚餐</th>
+                </tr>
+            `;
+            table.appendChild(thead);
+
+            const tbody = document.createElement("tbody");
+            const keys = Object.keys(daysData).sort((a, b) => parseInt(a) - parseInt(b));
+
+            keys.forEach(dayKey => {
+                const day = daysData[dayKey];
+                const tr = document.createElement("tr");
+
+                const dateTd = document.createElement("td");
+                const date = new Date(`${day.date}T00:00:00`);
+                dateTd.innerHTML = `<strong>周${weekdayLabels[date.getDay()]}</strong><br><small>${day.date}</small>`;
+                tr.appendChild(dateTd);
+
+                mealKeys.forEach(mealType => {
+                    const td = document.createElement("td");
+
+                    if (selected && selected.dayKey === dayKey && selected.mealType === mealType) {
+                        td.classList.add("table-primary");
+                        td.style.border = "2px solid #0d6efd";
+                    }
+
+                    const items = day.auto_order[mealType] || [];
+                    if (items.length > 0) {
+                        td.innerHTML = items.map(item => {
+                            const price = item.price !== undefined && item.price !== null && item.price !== ""
+                                ? ` (¥${parseFloat(item.price)})`
+                                : "";
+                            return `<span class="badge bg-success mb-1">${item.name}${price}</span>`;
+                        }).join("<br>");
+                    } else {
+                        td.innerHTML = '<span class="text-muted">-</span>';
+                    }
+
+                    td.onclick = () => selectDay(dayKey, mealType);
+                    tr.appendChild(td);
+                });
+
+                tbody.appendChild(tr);
+            });
+
+            table.appendChild(tbody);
+            container.appendChild(table);
+        }
+
+        async function selectDay(dayKey, mealType) {
+            selected = { dayKey, mealType };
+            renderChecksheet();
+            renderEditor();
+
+            if (menus[dayKey]) {
+                renderEditor();
+                return;
+            }
+
+            const date = daysData[dayKey].date;
+            showStatus(`正在加载 ${date} 的菜单...`, "info");
+            try {
+                const response = await fetch(`/api/orders/day_menu?date=${encodeURIComponent(date)}`);
+                const result = await response.json();
+                if (!response.ok || !result.success) {
+                    throw new Error(result.message || "加载菜单失败");
+                }
+                menus[dayKey] = result.menu || {};
+                const msg = document.getElementById("status-msg");
+                msg.classList.add("d-none");
+            } catch (error) {
+                showStatus(error.message || "加载菜单失败", "danger");
+            }
+            renderEditor();
+        }
+
+        function renderEditor() {
+            const container = document.getElementById("editor-container");
+            container.innerHTML = "";
+
+            if (!selected) {
+                container.innerHTML = '<div class="alert alert-info">请先在上方预览表中选择要修改的一餐。</div>';
+                return;
+            }
+
+            const { dayKey, mealType } = selected;
+            const day = daysData[dayKey];
+            const menu = menus[dayKey] || {};
+            const availableMenu = menu[mealType] || [];
+
+            const header = document.createElement("h3");
+            header.className = "h5 mb-3 border-bottom pb-2";
+            header.innerHTML = `${day.date} - <span class="text-primary">${mealLabels[mealType]}</span>`;
+            container.appendChild(header);
+
+            if (!menus[dayKey]) {
+                container.innerHTML += '<p class="text-muted">菜单加载中或不可用。</p>';
+                return;
+            }
+
+            if (availableMenu.length === 0) {
+                container.innerHTML += '<p class="text-muted">该餐暂无可用菜单。</p>';
+                return;
+            }
+
+            const row = document.createElement("div");
+            row.className = "row row-cols-1 row-cols-md-3 row-cols-lg-4 g-3";
+
+            availableMenu.forEach(food => {
+                const count = countFood(dayKey, mealType, food);
+                const col = document.createElement("div");
+                col.className = "col";
+                col.innerHTML = `
+                    <div class="card h-100 ${count > 0 ? "food-card-selected" : ""}">
+                        <div class="card-body text-center d-flex flex-column">
+                            <h6 class="card-title fw-bold mb-2">${food.name}</h6>
+                            <p class="card-text text-danger fw-bold mb-3 mt-auto">￥${parseFloat(food.price || 0).toFixed(2)}</p>
+                            <div class="d-flex justify-content-center align-items-center bg-white p-2 rounded border">
+                                <button class="btn btn-sm btn-outline-secondary px-3 fw-bold fs-5" style="line-height:1;" ${count === 0 ? "disabled" : ""} data-food-id="${food.id}" data-delta="-1">-</button>
+                                <span class="mx-3 fw-bold fs-5 text-primary" style="min-width: 20px;">${count}</span>
+                                <button class="btn btn-sm btn-outline-primary px-3 fw-bold fs-5" style="line-height:1;" data-food-id="${food.id}" data-delta="1">+</button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                row.appendChild(col);
+            });
+
+            row.addEventListener("click", event => {
+                const button = event.target.closest("button[data-food-id]");
+                if (!button) return;
+                changeQuantity(dayKey, mealType, button.dataset.foodId, Number(button.dataset.delta));
+            });
+
+            container.appendChild(row);
+        }
+
+        function changeQuantity(dayKey, mealType, foodId, delta) {
+            const day = daysData[dayKey];
+            const list = currentItems(dayKey, mealType);
+            const menuItems = (menus[dayKey] && menus[dayKey][mealType]) || [];
+            const food = menuItems.find(item => String(item.id) === String(foodId));
+
+            if (delta === 1) {
+                if (food) {
+                    list.push({
+                        id: food.id,
+                        name: food.name,
+                        price: parseFloat(food.price || 0)
+                    });
+                }
+            } else if (delta === -1) {
+                let index = list.findIndex(item => item.id && String(item.id) === String(foodId));
+                if (index === -1 && food) {
+                    index = list.findIndex(item => item.name === food.name);
+                }
+                if (index !== -1) {
+                    list.splice(index, 1);
+                }
+            }
+
+            renderChecksheet();
+            renderEditor();
+        }
+
+        function renderApplyResult(result) {
+            const container = document.getElementById("apply-result");
+            container.innerHTML = "";
+
+            const alert = document.createElement("div");
+            alert.className = `alert ${result.success ? "alert-success" : "alert-danger"}`;
+            alert.innerText = result.message || (result.success ? "修改成功。" : "修改失败。");
+            container.appendChild(alert);
+
+            if (result.failed_items && result.failed_items.length > 0) {
+                const title = document.createElement("h6");
+                title.textContent = "失败的菜品";
+                container.appendChild(title);
+                const list = document.createElement("ul");
+                result.failed_items.forEach(item => {
+                    const li = document.createElement("li");
+                    li.textContent = `${item.date || ""} ${item.meal_label || ""} - ${item.name || ""} (${item.reason || ""})`;
+                    list.appendChild(li);
+                });
+                container.appendChild(list);
+            }
+
+            if (result.cancelled && result.cancelled.length > 0) {
+                const title = document.createElement("h6");
+                title.textContent = "已退菜";
+                container.appendChild(title);
+                const list = document.createElement("ul");
+                result.cancelled.forEach(item => {
+                    const li = document.createElement("li");
+                    li.textContent = `${item.date || ""} ${item.meal_label || ""} - ${item.name || ""} ${item.success ? "成功" : "失败: " + (item.message || "")}`;
+                    list.appendChild(li);
+                });
+                container.appendChild(list);
+            }
+
+            if (result.ordered && result.ordered.length > 0) {
+                const title = document.createElement("h6");
+                title.textContent = "已定菜";
+                container.appendChild(title);
+                const list = document.createElement("ul");
+                result.ordered.forEach(item => {
+                    const li = document.createElement("li");
+                    li.textContent = `${item.date || ""} - ${item.name || ""} ${item.success ? "成功" : "失败: " + (item.message || "")}`;
+                    list.appendChild(li);
+                });
+                container.appendChild(list);
+            }
+        }
+
+        async function loadOverview() {
+            const starttime = document.getElementById("starttime").value;
+            const endtime = document.getElementById("endtime").value;
+            if (!starttime || !endtime) {
+                showStatus("请选择开始和结束日期。", "danger");
+                return;
+            }
+
+            const loadBtn = document.getElementById("loadBtn");
+            loadBtn.disabled = true;
+            showStatus("正在查询订餐系统...", "info");
+
+            try {
+                const response = await fetch(`/api/orders/overview?starttime=${encodeURIComponent(starttime)}&endtime=${encodeURIComponent(endtime)}`);
+                const result = await response.json();
+                if (!response.ok || !result.success) {
+                    throw new Error(result.message || "查询失败");
+                }
+                daysData = result.days || {};
+                menus = {};
+                selected = null;
+                renderChecksheet();
+                renderEditor();
+                document.getElementById("submitChangesBtn").disabled = Object.keys(daysData).length === 0;
+                document.getElementById("apply-result").innerHTML = "";
+                showStatus("查询完成。", "success");
+            } catch (error) {
+                showStatus(error.message || "查询失败", "danger");
+            } finally {
+                loadBtn.disabled = false;
+            }
+        }
+
+        async function submitChanges() {
+            if (!confirm("确定要把这些修改提交到订餐系统吗？系统会先退菜再定菜。")) return;
+
+            const days = Object.keys(daysData)
+                .sort((a, b) => parseInt(a) - parseInt(b))
+                .map(key => {
+                    const day = daysData[key];
+                    return {
+                        date: day.date,
+                        breakfastorders: day.auto_order.breakfastorders || [],
+                        lunchorders: day.auto_order.lunchorders || [],
+                        supperorders: day.auto_order.supperorders || []
+                    };
+                });
+
+            const button = document.getElementById("submitChangesBtn");
+            button.disabled = true;
+            showStatus("正在提交修改...", "info");
+
+            try {
+                const response = await fetch("/api/orders/apply", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ days: days })
+                });
+                const result = await response.json();
+                renderApplyResult(result);
+                if (result.success) {
+                    showStatus("修改已提交。", "success");
+                    await loadOverview();
+                } else {
+                    showStatus(result.message || "修改未完全成功。", "danger");
+                }
+            } catch (error) {
+                showStatus(error.message || "提交修改失败", "danger");
+            } finally {
+                button.disabled = false;
+            }
+        }
+
+        document.getElementById("loadBtn").addEventListener("click", loadOverview);
+        document.getElementById("submitChangesBtn").addEventListener("click", submitChanges);
+
+        setDefaultRange();
+        loadOverview();
+    </script>
+</body>
+
+</html>

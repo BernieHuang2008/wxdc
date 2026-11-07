@@ -55,15 +55,35 @@
         };
         
         let selectedDayInfo = null;
+        let itemStatus = {};
+
+        function statusClass(status) {
+            if (status === 'ordered') return 'bg-success';
+            if (status === 'failed') return 'bg-danger';
+            return 'bg-secondary';
+        }
+
+        function statusLabel(status) {
+            if (status === 'ordered') return '已下单';
+            if (status === 'failed') return '下单失败';
+            return '已选择未下单';
+        }
 
         function renderChecksheet() {
             const container = document.getElementById('checksheet-container');
-            container.innerHTML = '<h3>订单预览表</h3><p class="text-muted mb-2"><small>点击下方表格中的部分来编辑该餐的菜品。</small></p>';
+            container.innerHTML = `
+                <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                    <div>
+                        <h3 class="mb-0">订单预览表</h3>
+                        <p class="text-muted mb-0"><small>点击下方表格中的部分来编辑该餐的菜品。灰色=已选未下单，绿色=下单成功，红色=下单失败。</small></p>
+                    </div>
+                    <button id="refresh-status-btn" type="button" class="btn btn-outline-primary btn-sm">刷新订餐状态</button>
+                </div>
+            `;
 
             const table = document.createElement('table');
-            table.className = 'table table-bordered table-striped text-center align-middle';
+            table.className = 'table table-bordered table-striped text-center align-middle mt-3';
 
-            // Header
             const thead = document.createElement('thead');
             thead.innerHTML = `
                 <tr>
@@ -76,53 +96,39 @@
             table.appendChild(thead);
 
             const tbody = document.createElement('tbody');
-
-            // Sort days
             const days = Object.keys(orderData).sort((a, b) => parseInt(a) - parseInt(b));
 
             days.forEach(dayKey => {
                 const dayData = orderData[dayKey];
                 const tr = document.createElement('tr');
 
-                // Date column
                 const dateTd = document.createElement('td');
                 dateTd.innerHTML = `<strong>${weekdayLabels[Number(dayKey) % 7]}</strong><br><small>${dayData.date}</small>`;
                 tr.appendChild(dateTd);
 
-                // Meals
                 ['breakfastorders', 'lunchorders', 'supperorders'].forEach(mealType => {
                     const td = document.createElement('td');
                     td.style.cursor = 'pointer';
 
-                    // highlight selected
                     if (selectedDayInfo && selectedDayInfo.dayKey === dayKey && selectedDayInfo.mealType === mealType) {
                         td.classList.add('table-primary');
                         td.style.border = '2px solid #0d6efd';
                     }
 
                     if (dayData.auto_order && dayData.auto_order[mealType]) {
-                        if (dayData.auto_order[mealType].length > 0) {
-                            const counts = {};
-                            dayData.auto_order[mealType].forEach(item => {
-                                if (!counts[item.name]) {
-                                    counts[item.name] = { qty: 0, price: item.price };
-                                }
-                                counts[item.name].qty += 1;
+                        const items = dayData.auto_order[mealType] || [];
+                        if (items.length > 0) {
+                            const statuses = (itemStatus[dayKey] && itemStatus[dayKey][mealType]) || [];
+                            const badges = items.map((item, index) => {
+                                const status = statuses[index] || 'pending';
+                                const priceDisplay = item.price !== undefined ? ` (¥${parseFloat(item.price)})` : '';
+                                return `<span class="badge ${statusClass(status)} mb-1" title="${statusLabel(status)}">${item.name}${priceDisplay}</span>`;
                             });
-                            
-                            const items = Object.entries(counts).map(([name, info]) => {
-                                const priceDisplay = info.price !== undefined ? ` (¥${parseFloat(info.price)})` : '';
-                                return info.qty > 1 
-                                    ? `<span class="badge bg-secondary mb-1">${name}${priceDisplay} x${info.qty}</span>` 
-                                    : `<span class="badge bg-secondary mb-1">${name}${priceDisplay}</span>`;
-                            }).join('<br>');
-                            
-                            td.innerHTML = items;
+                            td.innerHTML = badges.join('<br>');
                         } else {
                             td.innerHTML = '<span class="text-muted">-</span>';
                         }
                     } else {
-                        // "N/A" -> "无" or equivalent
                         td.innerHTML = '<span class="text-muted text-decoration-line-through">无</span>';
                     }
 
@@ -140,8 +146,41 @@
 
             table.appendChild(tbody);
             container.appendChild(table);
+
+            const refreshBtn = document.getElementById('refresh-status-btn');
+            if (refreshBtn) {
+                refreshBtn.addEventListener('click', refreshStatus);
+            }
         }
 
+        async function refreshStatus() {
+            const btn = document.getElementById('refresh-status-btn');
+            if (btn) {
+                btn.disabled = true;
+                btn.textContent = '刷新中...';
+            }
+            try {
+                const response = await fetch(`/pending_orders/${filename}/status`);
+                const result = await response.json();
+                if (!response.ok || !result.success) {
+                    throw new Error(result.message || '刷新失败');
+                }
+                itemStatus = result.status || {};
+                renderChecksheet();
+                const msgDiv = document.getElementById('status-msg');
+                msgDiv.classList.remove('d-none', 'alert-danger');
+                msgDiv.classList.add('alert-success');
+                msgDiv.innerText = '已刷新订餐状态。';
+            } catch (e) {
+                alert('刷新订餐状态失败: ' + e.message);
+            } finally {
+                const newBtn = document.getElementById('refresh-status-btn');
+                if (newBtn) {
+                    newBtn.disabled = false;
+                    newBtn.textContent = '刷新订餐状态';
+                }
+            }
+        }
 
         function renderMenuGrid() {
             const container = document.getElementById('order-container');
@@ -227,6 +266,9 @@
                 }
             }
 
+            // statuses become stale after a manual edit
+            itemStatus = {};
+
             // re-render both
             renderChecksheet();
             renderMenuGrid();
@@ -266,10 +308,17 @@
 
                 if (result.success) {
                     msgDiv.classList.add('alert-success');
-                    msgDiv.innerText = result.message; // Consider translating message from backend if possible, or keeping as is if it's already translated
+                    msgDiv.innerText = result.message;
                 } else {
                     msgDiv.classList.add('alert-danger');
-                    msgDiv.innerText = '提交失败: ' + result.message;
+                    let message = '提交失败: ' + result.message;
+                    if (result.failed_items && result.failed_items.length > 0) {
+                        const failedText = result.failed_items
+                            .map(item => `${item.date || ''} ${item.meal_label || ''} - ${item.name || ''}`)
+                            .join('\n');
+                        message += '\n未订上的菜品:\n' + failedText;
+                    }
+                    msgDiv.innerText = message;
                 }
             } catch (e) {
                 alert('提交订单出错: ' + e);

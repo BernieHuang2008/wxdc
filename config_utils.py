@@ -23,6 +23,7 @@ DEFAULT_CONFIG = {
     },
     "cron": {
         "schedule": "0 16 * * 5",
+        "schedule_next": "0 12 * * 0",
     },
     "email": {
         "smtp_server": "smtp.163.com",
@@ -52,6 +53,7 @@ DEFAULT_CONFIG = {
     "paths": {
         "users_dir": "users",
         "pending_orders_dir": "pending_orders",
+        "menus_dir": "menus",
         "token_file": "token.txt",
         "req_file": "req.txt",
         "spec_conf_date_file": "spec_conf_date.txt",
@@ -110,6 +112,7 @@ APP_SECRET_KEY = get_config("app", "secret_key", default=DEFAULT_CONFIG["app"]["
 WEB_BASE_URL = get_config("app", "base_url", default=DEFAULT_CONFIG["app"]["base_url"])
 APP_PORT = int(get_config("app", "port", default=DEFAULT_CONFIG["app"]["port"]))
 CRON_SCHEDULE = get_config("cron", "schedule", default=DEFAULT_CONFIG["cron"]["schedule"])
+CRON_SCHEDULE_NEXT = get_config("cron", "schedule_next", default=DEFAULT_CONFIG["cron"]["schedule_next"])
 
 SMTP_SERVER = get_config("email", "smtp_server", default=DEFAULT_CONFIG["email"]["smtp_server"])
 SMTP_PORT = int(get_config("email", "smtp_port", default=DEFAULT_CONFIG["email"]["smtp_port"]))
@@ -133,6 +136,7 @@ LLM_MODEL = get_config("llm", "model", default=DEFAULT_CONFIG["llm"]["model"])
 
 USERS_DIR = resolve_data_path(get_config("paths", "users_dir", default=DEFAULT_CONFIG["paths"]["users_dir"]), DEFAULT_CONFIG["paths"]["users_dir"])
 PENDING_ORDERS_DIR = resolve_data_path(get_config("paths", "pending_orders_dir", default=DEFAULT_CONFIG["paths"]["pending_orders_dir"]), DEFAULT_CONFIG["paths"]["pending_orders_dir"])
+MENUS_DIR = resolve_data_path(get_config("paths", "menus_dir", default=DEFAULT_CONFIG["paths"]["menus_dir"]), DEFAULT_CONFIG["paths"]["menus_dir"])
 TOKEN_FILE = resolve_data_path(get_config("paths", "token_file", default=DEFAULT_CONFIG["paths"]["token_file"]), DEFAULT_CONFIG["paths"]["token_file"])
 REQ_FILE = resolve_data_path(get_config("paths", "req_file", default=DEFAULT_CONFIG["paths"]["req_file"]), DEFAULT_CONFIG["paths"]["req_file"])
 SPEC_CONF_DATE_FILE = resolve_data_path(get_config("paths", "spec_conf_date_file", default=DEFAULT_CONFIG["paths"]["spec_conf_date_file"]), DEFAULT_CONFIG["paths"]["spec_conf_date_file"])
