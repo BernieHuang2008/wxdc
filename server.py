@@ -517,7 +517,7 @@ def api_config_order_date():
     start_key = 1 if week == 'current' else 8
     for day_offset in range(7):
         day_key = str(start_key + day_offset)
-        meals = str(selected_days.get(day_key, ""))
+        meals = str(selected_days.get(str(day_offset+1), ""))
 
         meals = "".join(set(meals) & set("bls"))
         if meals:
