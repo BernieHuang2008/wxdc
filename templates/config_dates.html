@@ -262,7 +262,7 @@
             <div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-3">
                 <div>
                     <h1 class="h4 mb-1">常规订餐配置</h1>
-                    <div class="muted-hint">“下周”表示提前一周进行订餐。点击表格单元格切换勾选。</div>
+                    <div class="muted-hint">“下周”表示提前一周进行订餐。点击格子勾选哪一顿饭要自动订。</div>
                 </div>
 
                 <div class="btn-group week-switch" role="group" aria-label="week selector">
@@ -290,14 +290,14 @@
                 </table>
             </div>
 
-            <!-- 自动提交开关 -->
+            <!-- 自动下单开关 -->
             <div class="border rounded-3 bg-light p-3 mt-3">
                 <div class="form-check form-switch mb-1">
                     <input class="form-check-input" type="checkbox" role="switch" id="autoSubmitCheckbox" {% if auto_submit %}checked{% endif %}>
-                    <label class="form-check-label fw-semibold" for="autoSubmitCheckbox">是否自动提交</label>
+                    <label class="form-check-label fw-semibold" for="autoSubmitCheckbox">自动下单</label>
                 </div>
                 <div class="muted-hint">
-                    开启后，wxdc.py 生成订餐结果后会自动登录账号、提交订单并确认，然后退出账号。默认关闭。
+                    开启后，AI 生成菜单后将自动提交到学校的订餐系统，可后续手动更改订单。
                 </div>
                 <div class="status-text mt-2" id="autoSubmitStatus"></div>
             </div>
