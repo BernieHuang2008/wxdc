@@ -112,6 +112,55 @@ def format_orderdata_from_pending_order(data):
                     
     return ",".join(formatted_items)
 
+def reconcile_auto_order(data):
+    """Repair auto_order ids that no longer match the dish name in the menu.
+
+    Older pending orders could be generated with a broken fake-id mapping, so
+    an auto_order entry may carry the name of one dish but the id of another.
+    Match such entries back to the menu by name (and price) so that the
+    preview table, the edit page and the submitted order all agree.
+    """
+    changed = False
+    for day_info in data.values():
+        if not isinstance(day_info, dict):
+            continue
+        menu = day_info.get("menu") or {}
+        auto_order = day_info.get("auto_order") or {}
+        for meal in ("breakfastorders", "lunchorders", "supperorders"):
+            menu_items = [m for m in (menu.get(meal) or []) if isinstance(m, dict)]
+            orders = auto_order.get(meal)
+            if not isinstance(orders, list):
+                continue
+            for order in orders:
+                if not isinstance(order, dict) or "id" not in order:
+                    continue
+                current = next((m for m in menu_items if m.get("id") == order["id"]), None)
+                if current is not None and current.get("name") == order.get("name"):
+                    continue
+
+                candidates = [m for m in menu_items if m.get("name") == order.get("name")]
+                if not candidates:
+                    continue
+                match = None
+                try:
+                    order_price = float(order.get("price"))
+                    for candidate in candidates:
+                        try:
+                            if float(candidate.get("price")) == order_price:
+                                match = candidate
+                                break
+                        except (TypeError, ValueError):
+                            continue
+                except (TypeError, ValueError):
+                    pass
+                if match is None and len(candidates) == 1:
+                    match = candidates[0]
+                if match is not None and match.get("id") != order["id"]:
+                    order["id"] = match.get("id")
+                    changed = True
+    return changed
+
+
 def place_order(filename, order_data):
     # order_data format example: 2026-02-02~0~ID~1~',2026-02-02~0~ID~1~'
     user_no = check_perm(filename)
@@ -288,7 +337,11 @@ def view_order(filename):
             data = json.load(f)
         except json.JSONDecodeError:
             return "Error decoding JSON file.", 500
-            
+
+    if reconcile_auto_order(data):
+        with open(filepath, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=4)
+
     return render_template('view_order.html', filename=filename, data=data)
 
 @app.route('/pending_orders/<filename>/update', methods=['POST'])
@@ -320,7 +373,11 @@ def submit_order(filename):
     try:
         with open(filepath, 'r', encoding='utf-8') as f:
             order_data_json = json.load(f)
-            
+
+        if reconcile_auto_order(order_data_json):
+            with open(filepath, 'w', encoding='utf-8') as f:
+                json.dump(order_data_json, f, ensure_ascii=False, indent=4)
+
         formatted_data = format_orderdata_from_pending_order(order_data_json)
         print(f"Formatted data for submission: {formatted_data}")
 
@@ -353,7 +410,11 @@ def submit_order_from_email(filename):
     try:
         with open(filepath, 'r', encoding='utf-8') as f:
              order_data_json = json.load(f)
-        
+
+        if reconcile_auto_order(order_data_json):
+            with open(filepath, 'w', encoding='utf-8') as f:
+                json.dump(order_data_json, f, ensure_ascii=False, indent=4)
+
         formatted_data = format_orderdata_from_pending_order(order_data_json)
         print(f"Formatted data for email submission: {formatted_data}")
 

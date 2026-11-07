@@ -28,7 +28,7 @@ def ask_llm(prompt: str) -> str:
         }
     }
     try:
-        response = requests.post(url, json=payload, headers=headers, verify=False)
+        response = requests.post(url, json=payload, headers=headers)
         response.raise_for_status()
         return response.json().get("choices")[0].get("message")
     except requests.exceptions.RequestException as e:
@@ -164,16 +164,23 @@ class AutoOrder:
     authinfo = None
     requirement = None
 
-    id_map = {
-        # real_id: fake_id
-    }
-    id_map_reverse = []
-    fake_id_counter = 0
+    def __init__(self):
+        # Per-instance maps: these must NOT be shared between AutoOrder
+        # instances (e.g. different users in the same process), otherwise the
+        # fake_id_counter of a new instance restarts at 0 while the reverse
+        # map still holds the previous instance's ids, causing fake ids to be
+        # translated back to the wrong real dish.
+        self.id_map = {
+            # real_id: fake_id
+        }
+        self.id_map_reverse = {}
+        self.fake_id_counter = 0
 
     def realid_2_fakeid(self, real_id):
         if real_id not in self.id_map:
-            self.id_map[real_id] = self.fake_id_counter
-            self.id_map_reverse.append(real_id)
+            fake_id = self.fake_id_counter
+            self.id_map[real_id] = fake_id
+            self.id_map_reverse[fake_id] = real_id
             self.fake_id_counter += 1
 
         return self.id_map[real_id]
