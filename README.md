@@ -2,6 +2,8 @@
 
 自动订餐系统。当前仓库已整理为单层结构，运行数据统一放在 `data/` 下。
 
+用户功能说明见 [USER_MANUAL.html](USER_MANUAL.html)，部署后也可以直接访问 `/help` 查看。
+
 ## 项目文件树
 
 ```text

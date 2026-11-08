@@ -2,7 +2,7 @@ import re
 from collections import Counter
 from html import escape
 
-from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
+from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, send_from_directory
 import os
 import json
 from datetime import datetime, timedelta
@@ -34,6 +34,26 @@ def check_perm(filename=None):
     # TODO: More checks instead of only checking cookie.
 
     return request.cookies.get('user_no')
+
+
+PUBLIC_ENDPOINTS = {
+    'index',
+    'help_page',
+    'set_user_no',
+    'register_page',
+    'api_register',
+    'static',
+}
+
+
+@app.before_request
+def enforce_auth():
+    if request.endpoint is None or request.endpoint in PUBLIC_ENDPOINTS:
+        return None
+    if not check_perm():
+        return "Unauthorized: 请先通过微信激活链接登录。", 403
+    return None
+
 
 def get_all_users():
     users = []
@@ -192,6 +212,12 @@ def latest_orders():
 @app.route('/')
 def index():
     return render_template('index.html')
+
+
+@app.route('/help')
+def help_page():
+    return send_from_directory(os.path.dirname(os.path.abspath(__file__)), 'USER_MANUAL.html')
+
 
 @app.route('/set_user_no')
 def set_user_no():
